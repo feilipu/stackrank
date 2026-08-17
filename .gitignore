@@ -1,0 +1,18 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# SQLite database (never commit local data)
+data/*.db
+
+# pytest
+.pytest_cache/
+
+# local logs
+data/*.log
+*.log

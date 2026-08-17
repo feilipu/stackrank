@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Projects -- Stack Ranker{% endblock %}
+
+{% block content %}
+<article id="projects-content">
+     <header class="mb-3 rounded-xl bg-white p-4 shadow-sm border">
+         <h1 class="text-lg font-bold text-slate-900">Sub-project registry</h1>
+         <p class="text-xs italic text-slate-500">Manage sub-projects, cost (SGD/USD/MYR), dependencies under budget.</p>
+     </header>
+
+<section id="budget-card-region" class="mb-4 max-w-md">
+  {% include "_partials/budget_card.html" %}
+</section>
+
+   {% set editing = none %}
+{% include "_partials/project_list.html" with context %}
+
+<footer class="text-xs italic text-slate-500 mt-1">Inline edit · cascade delete · drag into pool below to rank.</footer>
+</article>
+{% endblock %}

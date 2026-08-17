@@ -1,0 +1,48 @@
+<article id="project-{{ editing }}" class="mb-3 rounded-md border bg-slate-50 p-4 shadow-sm">
+  <form hx-post="/projects/{{ editing }}" hx-swap="innerHTML" hx-target="#project-list">
+    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-slate-600">Edit {{ name }}</h3>
+    <div class="grid gap-3 md:grid-cols-2">
+      <label class="text-sm">Name
+        <input type="text" name="name" value="{{ name }}" required maxlength="80"
+               class="mt-0.5 w-full rounded border px-2 py-1.5">
+      </label>
+      <label class="text-sm">Description
+        <input type="text" name="description" value="{{ description }}"
+               class="mt-0.5 w-full rounded border px-2 py-1.5">
+      </label>
+      <label class="text-sm">Cost
+        <input type="number" step="0.01" min="0.01" name="cost" required value="{{ cost_sgd }}"
+               class="mt-0.5 w-full rounded border px-2 py-1.5">
+      </label>
+      <label class="text-sm">Currency
+        <select name="cost_currency" class="mt-0.5 w-full rounded border px-2 py-1.5">
+          {% for c in currencies %}
+            <option value="{{ c }}" {{ "selected" if c == budget_currency else "" }}>{{ symbols[c] }} {{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="text-sm">Outcome
+        <input type="number" step="0.01" min="0.01" name="outcome" required value="{{ outcome }}"
+               class="mt-0.5 w-full rounded border px-2 py-1.5">
+      </label>
+    </div>
+    <fieldset class="mt-3">
+      <legend class="text-xs font-medium uppercase text-slate-400">Depends on</legend>
+      <div class="mt-1 grid gap-1 md:grid-cols-2">
+        {% for proj in project_options %}
+          {% if proj.id != editing %}
+            <label class="text-sm">
+              <input type="checkbox" name="depends_on" value="{{ proj.id }}"
+                     {{ "checked" if proj.id in selected else "" }}>
+              {{ proj.name }}
+            </label>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </fieldset>
+    <div class="mt-4 flex gap-3">
+      <button type="submit" class="rounded bg-indigo-700 px-3 py-1.5 text-sm font-medium text-white">Save</button>
+      <a href="/projects" class="rounded border px-3 py-1.5 text-sm">Cancel</a>
+    </div>
+  </form>
+</article>

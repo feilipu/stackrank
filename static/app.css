@@ -1,0 +1,19 @@
+/* Extra styles Tailwind's CDN cannot express (docs/04). */
+
+.card-min { min-height: 18rem; }
+
+.pool-col { min-height: 6rem; }
+.pool-empty { display:flex; align-items:center; justify-content:center; border:2px dashed #cbd5e1; color:#94a3b8; padding:2rem; border-radius:0.75rem; text-align:center; }
+
+.drag-handle { cursor: grab; user-select:none; }
+.drag-ghost { opacity: .35; }
+.drag-over { outline: 2px dashed #4f46e5; outline-offset: -2px; }
+
+/* Contest progress bar. */
+.progress-track { background:#e2e8f0; border-radius:9999px; height:1rem; overflow:hidden; }
+.progress-fill { background:#4f46e5; height:100%; transition: width .3s ease; }
+
+.flash-ok { color:#166534; background:#dcfce7; border:1px solid #86efac; padding:.5rem .75rem; border-radius:.5rem; }
+.flash-error { color:#991b1b; background:#fee2e2; border:1px solid #fca5a5; padding:.5rem .75rem; border-radius:.5rem; }
+
+[disabled] { opacity:.6; cursor:not-allowed; }

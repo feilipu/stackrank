@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Beauty Contest -- Stack Ranker{% endblock %}
+{% block content %}
+
+<article id="contest-content">
+     <header class="mb-3 flex items-center justify-between rounded-xl bg-white p-4 shadow-sm border">
+         <h1 class="text-lg font-bold text-slate-900">Beauty Contest</h1>
+     </header>
+
+{% include "_partials/contest_board.html" %}
+<footer id="contest-footer-note" class="mt-3 text-xs italic text-slate-400">Watch the leaderboard update after each decision.</footer>
+
+  </article>
+{% endblock %}

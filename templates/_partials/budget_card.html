@@ -1,0 +1,38 @@
+<section id="budget-card">
+  <form hx-post="/settings/budget" hx-swap="outerHTML" hx-target="#budget-card">
+     <h3 class="mb-2 text-sm font-bold uppercase tracking-wide text-slate-500">Budget</h3>
+     <div class="flex gap-2">
+       <input type="number" name="amount" step="1" value="{{ budget_amount }}" min="0"
+         class="w-40 rounded border border-slate-300 px-2 py-1.5 text-base" />
+       <select name="currency" class="rounded border border-slate-300 bg-white px-2 py-1.5">
+         {% for c in currencies %}
+           <option value="{{ c }}" {{ 'selected' if c == budget_currency else '' }}>{{ symbols[c] }}</option>
+         {% endfor %}
+       </select>
+       <button type="submit" class="rounded bg-brand-dark px-3 py-1.5 text-sm font-medium text-white">Set</button>
+     </div>
+     <p class="mt-2 text-xs text-slate-400">{{ triple.text if triple else "" }}</p>
+  </form>
+
+  <!-- FX rates card -->
+   <form hx-post="/settings/rates" hx-swap="outerHTML" hx-target="#budget-rates-card">
+    <section id="budget-rates-card" class="mt-4 rounded border p-3 bg-white shadow-sm">
+     <h3 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">FX rates</h3>
+       <div class="flex gap-3 text-sm">
+         <label class="flex items-center gap-1">
+           USD/SGD
+            <input type="number" name="usd_per_sgd" step="0.01" value="{{ settings['usd_per_sgd'] }}" min="0.01"
+              class="w-24 rounded border px-2 py-1"/>
+          </label>
+           <label class="flex items-center gap-1">
+             MYR/SGD
+            <input type="number" name="myr_per_sgd" step="0.01" value="{{ settings['myr_per_sgd'] }}" min="0.01"
+               class="w-24 rounded border px-2 py-1"/>
+           </label>
+          <button type="submit" class="mt-auto self-end text-xs font-medium text-brand">Update rates</button>
+         </div>
+       </section>
+     </form>
+   </section>
+
+<span id="header-budget" class="font-mono text-slate-700" hx-swap-oob="true">{{ budget_triple or '' }}</span>

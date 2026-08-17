@@ -1,0 +1,110 @@
+Prompt for Grok Build
+
+Build a simple, single-user web application called Project Stack Ranker.
+
+Use one /model Qwen38 Coder 27B (Ollama) as your servant to implement many components of this work.
+You must create the design documents for each component of the technical work, then hand it off for implmentation with testing designed to support your design specifications.
+
+# Goal
+
+Create a tool that lets me manage a list of sub-projects. Each sub-project has:
+
+Name
+Description (optional)
+Cost (positive number)
+Outcome score (positive number – higher is better)
+Dependencies (zero or more other sub-projects that must be selected first)
+Elo rating (for the beauty contest)
+
+The tool must support three complementary ways of deciding what gets funded:
+
+Automatic optimization – maximize total outcome under budget + dependency constraints (knapsack-style).
+Manual drag-and-drop pool – drag projects into an “In-Budget Success Pool”. Adding a project that would exceed the budget automatically forces the lowest-priority projects currently in the pool out until the budget is respected.
+Head-to-head beauty contest with Elo ratings – pairwise A/B comparisons that update Elo ratings and produce a live ranking.
+
+# Core Requirements
+
+## Data Model
+
+Sub-projects: id, name, description, cost, outcome, dependencies (list of other project IDs), elo_rating (float, default 1500)
+One global configurable budget
+All data must persist across restarts (durable storage)
+
+## Functionality
+
+A. Project Management
+
+Full CRUD for sub-projects
+Ability to set/edit the total budget
+Validation: no circular dependencies, positive costs and outcomes
+
+B. Automatic Optimization
+
+“Optimize” button that runs a 0/1 Knapsack with precedence constraints
+Prefer topological sort + dynamic programming (exact solution for ≤ 25–30 projects). PuLP ILP is also acceptable.
+Show selected set, total outcome, total cost, remaining budget, and excluded projects
+Optionally allow the optimizer to use Elo rating (or a blend of Elo + outcome) as the value metric
+
+C. Drag-and-Drop In-Budget Pool (Interactive Manual Ranking)
+
+A visual “Available Projects” list and an “In-Budget Success Pool”
+Drag projects from Available into the Pool (and back out)
+When a drag would cause the pool to exceed the budget, automatically eject the lowest-priority project(s) currently in the pool until the new project fits
+The pool should always respect the current budget and dependencies (warn or block if a dependency is missing)
+Live display of current total cost, remaining budget, and total outcome of the pool
+Ability to lock/pin high-priority projects so they cannot be auto-ejected
+Priority for auto-ejection can be based on Elo rating, outcome score, or a combination
+
+D. Head-to-Head Beauty Contest with Elo Ratings
+
+Show two sub-projects at a time as cards
+User chooses “A is better”, “B is better”, or “Skip”
+Update both projects’ Elo ratings using the standard Elo formula (K-factor around 32 is fine)
+Maintain a live ranking of all projects ordered by current Elo rating
+Show each project’s current Elo, number of matches played, and win/loss record
+Allow the resulting Elo ranking (or the Elo scores themselves) to feed into both the automatic optimizer and the drag-and-drop pool
+Progress indicator and ability to stop the contest at any time
+Option to reset Elo ratings back to 1500
+
+E. Multiple currency support
+
+Support three currencies at the same time, with a average conversion rate. base currency is singapore dollar, with us dollar and malaysian ringgit as alternatives.
+Set the goal in one of the three available currencies.
+
+
+## Tech Stack (keep it simple and robust)
+
+Backend: Python + FastAPI
+Database: SQLite
+Frontend: Server-rendered with Jinja2 + HTMX + Tailwind CSS (or Bootstrap). Use a lightweight drag-and-drop library that works well with HTMX (e.g. SortableJS).
+No authentication required
+
+## UI Expectations
+
+Clean, modern, readable interface
+Clear sections or tabs for:
+Project list & editing
+Budget setting
+Automatic Optimize results
+Drag-and-drop Pool
+Beauty Contest (with live Elo leaderboard)
+
+Form for adding/editing projects with a good dependency selector
+Live feedback when dragging (budget numbers update immediately)
+In the beauty contest view: two large cards + ranking table on the side or below
+
+## Non-functional
+
+Runs locally with a single command
+Include a good README.md with setup and run instructions
+Seed the database with 10–14 realistic example sub-projects that have varied costs, outcomes, and some interesting dependencies so all three modes are immediately useful
+Initialize all Elo ratings at 1500
+
+# Deliverables
+
+Working web application
+Clear project structure
+README
+Seed data
+
+Start by designing the data model (including Elo fields and any match history if useful), then the algorithms (knapsack + Elo update), then backend + storage, then the interactive UI features.

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Project Stack Ranker{% endblock %}</title>
+  <script defer src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: {
+        brand: { DEFAULT: '#4f46e5', dark: '#3730a3' },
+      } } }
+    };
+  </script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}" />
+</head>
+<body class="min-h-full bg-slate-50 text-slate-900 antialiased">
+  <header class="border-b border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+      <a href="/projects" class="text-lg font-bold text-brand-dark">Project&nbsp;Stack Ranker</a>
+      <nav class="flex flex-wrap items-center gap-1 text-sm font-medium">
+        {% for slug, label in [('projects','Projects'),('optimize','Optimize'),('pool','Pool'),('contest','Contest')] %}
+          <a href="/{{ slug }}"
+             class="{% if page == slug %}border-b-2 border-brand text-brand-dark{% else %}text-slate-500 hover:text-slate-800{% endif %} px-3 py-1.5">
+            {{ label }}
+          </a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="mx-auto max-w-6xl px-4 pb-2 text-xs text-slate-500">
+      Budget: <span id="header-budget" class="font-mono text-slate-700">{{ budget_triple or '' }}</span>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-4 py-6">
+    <div id="flash"></div>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="{{ url_for('static', path='app.js') }}"></script>
+</body>
+</html>

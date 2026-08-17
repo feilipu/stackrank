@@ -1,0 +1,78 @@
+<section id="pool-board">
+  <form hx-post="/settings/pool-metric" hx-swap="outerHTML" hx-target="#pool-board"
+        class="mb-4 flex flex-wrap items-center gap-3 text-sm">
+    <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Auto-eject metric</span>
+    {% for value, label in [('outcome', 'Outcome'), ('elo', 'Elo'), ('blend', 'Blend')] %}
+      <label class="inline-flex items-center gap-1">
+        <input type="radio" name="metric" value="{{ value }}"
+               {{ "checked" if pool_metric == value else "" }}
+               onchange="this.form.requestSubmit()">
+        {{ label }}
+      </label>
+    {% endfor %}
+  </form>
+
+  <div id="pool-totals" class="mb-4 grid gap-3 rounded-md border bg-white p-3 text-sm shadow-sm md:grid-cols-5">
+    <div><span class="block text-xs uppercase text-slate-400">In pool</span>
+      <span class="text-lg font-semibold">{{ totals.count }}</span></div>
+    <div><span class="block text-xs uppercase text-slate-400">Spent</span>
+      <span class="font-mono">{{ totals.cost.text }}</span></div>
+    <div><span class="block text-xs uppercase text-slate-400">Remaining</span>
+      <span class="font-mono">{{ totals.remaining.text }}</span></div>
+    <div><span class="block text-xs uppercase text-slate-400">Outcome</span>
+      <span class="text-lg font-semibold">{{ totals.outcome }}</span></div>
+    <div><span class="block text-xs uppercase text-slate-400">Elo sum</span>
+      <span class="text-lg font-semibold">{{ totals.elo }}</span></div>
+  </div>
+
+  <div class="grid gap-4 md:grid-cols-2">
+    <section>
+      <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Available</h2>
+      <ul id="available-list" class="min-h-[8rem] space-y-2 rounded-md border bg-slate-100 p-2">
+        {% for item in available %}
+          <li class="rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h3 class="font-medium">{{ item.name }}</h3>
+                <p class="text-xs text-slate-500">{{ item.description or "—" }}</p>
+                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }}</p>
+              </div>
+              <button type="button" class="rounded bg-indigo-700 px-2 py-1 text-xs text-white"
+                      hx-post="/pool/add/{{ item.id }}" hx-target="#pool-board" hx-swap="outerHTML">
+                Add
+              </button>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section>
+      <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">In-Budget Success Pool</h2>
+      <ul id="pool-list" class="min-h-[8rem] space-y-2 rounded-md border bg-indigo-50 p-2">
+        {% for item in pool_items %}
+          <li class="rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h3 class="font-medium">{{ item.name }}</h3>
+                <p class="text-xs text-slate-500">{{ item.description or "—" }}</p>
+                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }}</p>
+              </div>
+              <div class="flex flex-col gap-1">
+                <button type="button" class="rounded border px-2 py-0.5 text-xs"
+                        hx-post="/pool/pin/{{ item.id }}" hx-target="#pool-board" hx-swap="outerHTML">
+                  {{ "Unpin" if item.pinned else "Pin" }}
+                </button>
+                <button type="button" class="text-xs text-red-600"
+                        hx-post="/pool/remove/{{ item.id }}" hx-target="#pool-board" hx-swap="outerHTML">
+                  Remove
+                </button>
+              </div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+  <p class="mt-3 text-xs text-slate-400">Drag between columns or use Add / Remove. Pinned projects are never auto-ejected.</p>
+</section>
