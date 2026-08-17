@@ -1,8 +1,8 @@
 # Handoff — Project Stack Ranker
 
 **Date:** 2026-08-17  
-**Repo:** `/Users/phillip/Projects/stackrank` (not a git repository)  
-**Status:** Spec is implemented. pytest **30 passed**. The Projects 503 is **fixed**. All four tabs 200 with a non-empty pool (11 items in `data/stackrank.db`). Do not rebuild the app.
+**Repo:** `/Users/phillip/Projects/stackrank` (`main`)  
+**Status:** Spec is implemented. pytest **33 passed**. Suggested next-work items **1–6 are done**. Repo is git `main` @ `9e762c5` plus a follow-up docs commit. Do not rebuild the app.
 
 This document is for the next session or agent. Read this first, then the design docs only if you need algorithm or route detail.
 
@@ -153,15 +153,15 @@ Blend: `0.6 * outcome + 0.4 * (elo / 15)`.
 ## Known gaps / polish (do not treat as “unbuilt”)
 
 1. ~~**`request.state.is_hx` is never set.**~~ Fixed: middleware sets it; HTMX create/delete return the list fragment.
-2. **Writes are autocommit** (`isolation_level = None`). Design asked for `BEGIN IMMEDIATE` around pool add/eject. Several write paths already wrap `BEGIN IMMEDIATE`; remaining writes are still autocommit. Functionally OK for single user.
+2. ~~**Writes are autocommit.**~~ Remaining service writes + `seed_if_empty` now use `BEGIN IMMEDIATE` / `COMMIT` / `ROLLBACK`. `_end_contest_sql` and `_advance_pair` stay bare so they are not nested. Parent fixed a Gemma typo in `seed.py` (`ROLLback` / missing `ServiceError`).
 3. **n > 24 ILP fallback** not implemented. Recursion is exact for the seed (n = 12). Fine unless someone adds many projects.
-4. **Pool remaining** shows SGD only, not the three-currency triple.
-5. **Optimize apply** returns a one-line HTML note, not a redirect to `/pool`.
-6. **Header budget chip** is static text; it does not refresh when the budget form is submitted (card fragment does).
+4. ~~**Pool remaining** SGD only.~~ Remaining uses `totals.remaining.text` (SGD · USD · MYR). Live pool: `S$9,463  ·  US$7,003  ·  RM32,649`.
+5. **Optimize apply** still returns a one-line HTML note, not a redirect to `/pool`. (Not in suggested 1–6.)
+6. ~~**Header budget chip** static.~~ `#header-budget` + `hx-swap-oob` on `budget_card.html` after budget/rates POSTs.
 7. **Tailwind** is loaded with `defer`. Possible unstyled flash.
-8. **`playwright` is not in `requirements.txt`.** Chromium + WebKit are installed on this machine if you want browser checks. Real Safari Remote Automation is off.
-9. **No git.** Nothing is committed.
-10. Leftover: `data/ollama-serve.log`. Safe to delete.
+8. ~~**`playwright` missing from requirements.**~~ `playwright==1.62.0` plus `scripts/smoke_tabs.py` (WebKit, four tabs). Not in pytest.
+9. ~~**No git.**~~ `git init -b main`; initial commit `9e762c5`. `data/*.db` is ignored.
+10. Leftover: `data/ollama-serve.log`. Safe to delete (ignored by `data/*.log`).
 
 Template history (already fixed — do not reintroduce):
 
@@ -189,7 +189,7 @@ What happened:
 - `qwen3-coder` → `qwen3-coder:30b`
 - `gemma4-coder` → `gemma4-coder:26b` (created with `ollama cp gemma-coder:26b gemma4-coder:26b`)
 
-**Recommendation:** finish polish in the parent agent. If you spawn a local model, give it one file or one test module and a hard stop condition. Do not hand it the whole repo.
+**Recommendation (after items 1–6):** prefer **Qwen38 Coder 27B** for one-item, few-file prompts with a hard stop. It shipped items 3–6 cleanly. Use **Gemma4 Coder 26B** as the fallback when Qwen makes no file edits in ~15 minutes (that is how item 2 landed). Never run both at once. Never hand either the whole repo.
 
 If Ollama is sick again:
 
@@ -207,12 +207,14 @@ Do not treat a hung local worker as unfinished product work.
 
 Priority order if the user wants more:
 
-1. ~~**Fix the Projects 503**~~ and ~~wire `HX-Request`~~ — done (see Fixed above).
-2. Wrap remaining writes in `BEGIN IMMEDIATE` where the design asked for it.
-3. Refresh the header budget chip after settings POSTs (`HX-Trigger` + small swap).
-4. Remaining budget as a three-currency triple (pool totals still SGD-only).
-5. Optional Playwright smoke in `requirements.txt` + a tiny script for the four tabs.
-6. `git init` only if the user wants history.
+1. ~~**Fix the Projects 503**~~ and ~~wire `HX-Request`~~ — done.
+2. ~~Wrap remaining writes in `BEGIN IMMEDIATE`.~~ Done (Gemma after Qwen stalled).
+3. ~~Refresh the header budget chip.~~ Done (Qwen, HTMX OOB).
+4. ~~Remaining budget as a three-currency triple.~~ Done (Qwen).
+5. ~~Playwright smoke + four-tab script.~~ Done (Qwen): `scripts/smoke_tabs.py`.
+6. ~~`git init`.~~ Done (Qwen): `main` @ `9e762c5`.
+
+If more polish is wanted later: n>24 ILP fallback, optimize-apply redirect to `/pool`, Tailwind FOUC.
 
 Do **not** add React, auth, a live FX API, or a second frontend.
 

@@ -17,9 +17,9 @@ Parent (Grok 4.6) then:
 
 ## Tests
 
-`pytest` from the repo root: **30 passed**.
+`pytest` from the repo root: **33 passed**.
 
-P0 `/projects` 503 (non-empty pool, `r["project_id"]` vs `r["id"]`) is fixed. See [handoff.md](handoff.md).
+Suggested next-work items 1–6 from the handoff are done. See [handoff.md](handoff.md).
 
 ## How to run
 

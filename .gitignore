@@ -16,3 +16,6 @@ data/*.db
 # local logs
 data/*.log
 *.log
+
+# macOS
+.DS_Store
