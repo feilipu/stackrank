@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict, deque
 
-from stackrank.currency import metric_value, to_sgd
+from stackrank.currency import format_money, metric_value, to_sgd
 from stackrank.elo import (
     DEFAULT_ELO,
     K_FACTOR,
@@ -62,6 +62,77 @@ def dependency_pairs(conn: sqlite3.Connection) -> list[tuple[int, int]]:
 
 def names_by_id(conn: sqlite3.Connection) -> dict[int, str]:
     return {int(r["id"]): r["name"] for r in conn.execute("SELECT id, name FROM projects")}
+
+
+def export_filename(conn: sqlite3.Connection) -> str:
+    """Safe download name from the overall project title."""
+    settings = get_settings(conn)
+    try:
+        raw = (settings["project_name"] or "").strip()
+    except (IndexError, KeyError):
+        raw = ""
+    slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw).strip("-")
+    while "--" in slug:
+        slug = slug.replace("--", "-")
+    return f"{slug or 'stackrank'}.md"
+
+
+def export_markdown(conn: sqlite3.Connection) -> str:
+    """Markdown document of the overall project and every sub-project."""
+    settings = get_settings(conn)
+    try:
+        project_name = (settings["project_name"] or "").strip() or "Untitled project"
+    except (IndexError, KeyError):
+        project_name = "Untitled project"
+    usd, myr = settings["usd_per_sgd"], settings["myr_per_sgd"]
+    budget_sgd = float(settings["budget_sgd"])
+    all_projects = list_projects(conn)
+    pooled = list(pool_rows(conn))
+    pool_ids = {int(r["id"]) for r in pooled}
+    pinned_ids = {int(r["id"]) for r in pooled if int(r["pinned"])}
+    remaining = max(0.0, budget_sgd - sum(float(r["cost_sgd"]) for r in pooled))
+    names = names_by_id(conn)
+    deps = dependencies_map(conn)
+
+    lines = [
+        f"# {project_name}",
+        "",
+        f"Budget: {format_money(budget_sgd, usd, myr)}",
+        (
+            f"Pool: {len(pool_ids)} of {len(all_projects)} in pool · "
+            f"remaining {format_money(remaining, usd, myr)}"
+        ),
+        "",
+        "## Sub-projects",
+        "",
+    ]
+    for row in all_projects:
+        pid = int(row["id"])
+        if pid in pinned_ids:
+            status = "In pool (pinned)"
+        elif pid in pool_ids:
+            status = "In pool"
+        else:
+            status = "Not in pool"
+        dep_names = [names.get(d, "?") for d in deps.get(pid, [])]
+        desc = (row["description"] or "").strip() or "—"
+        lines.extend(
+            [
+                f"### {row['name']}",
+                f"- Status: {status}",
+                f"- Cost: {format_money(float(row['cost_sgd']), usd, myr)}",
+                f"- Outcome: {row['outcome']}",
+                (
+                    f"- Elo: {round(float(row['elo_rating']))} "
+                    f"({int(row['wins'])}–{int(row['losses'])}, "
+                    f"{int(row['matches_played'])} matches)"
+                ),
+                f"- Depends on: {', '.join(dep_names) if dep_names else '—'}",
+                f"- Description: {desc}",
+                "",
+            ]
+        )
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def _would_cycle(conn: sqlite3.Connection, project_id: int, depends_on: list[int]) -> bool:
@@ -228,6 +299,22 @@ def delete_project(conn: sqlite3.Connection, project_id: int) -> None:
     except ServiceError:
         conn.execute("ROLLBACK")
         raise
+
+
+def update_project_name(conn: sqlite3.Connection, name: str) -> None:
+    name = (name or "").strip()
+    if not name or len(name) > 80:
+        raise ServiceError("Project name must be 1–80 characters.")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE settings SET project_name = ? WHERE id = 1", (name,))
+        conn.execute("COMMIT")
+    except ServiceError:
+        conn.execute("ROLLBACK")
+        raise
+    except sqlite3.IntegrityError as exc:
+        conn.execute("ROLLBACK")
+        raise ServiceError("Could not rename project.") from exc
 
 
 def update_budget(conn: sqlite3.Connection, amount: float, currency: str) -> None:

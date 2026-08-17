@@ -54,6 +54,8 @@ Provide `tests/conftest.py` with:
 3. `POST /optimize/run` returns selected/excluded markup.
 4. `POST /contest/start` then `choose` changes Elo in the leaderboard HTML.
 5. `POST /pool/add/{id}` returns both columns.
+6. `POST /settings/name` persists the overall title; empty name is 422.
+7. `GET /export.md` is 200 `text/markdown`, contains a seeded name and `Budget:`.
 
 ## Manual / README smoke
 

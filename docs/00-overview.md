@@ -1,6 +1,6 @@
 # Project Stack Ranker — Overview
 
-Single-user local web app for ranking and funding sub-projects under a budget.
+Single-user local web app for ranking and funding sub-projects under a budget. The **overall project** has a user-editable name (default `Untitled project`). Sub-projects sit under that name.
 
 Three complementary decision modes:
 
@@ -16,6 +16,7 @@ Three complementary decision modes:
 | Persistence | SQLite (`data/stackrank.db`) |
 | Templates | Jinja2 |
 | Front-end | Server-rendered HTML + HTMX + Tailwind CDN + SortableJS CDN |
+| Export | `GET /export.md` — markdown document of the overall project + every sub-project |
 | Auth | None |
 | Currency base | SGD; also display/set budget in USD and MYR |
 

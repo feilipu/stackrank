@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -196,6 +196,17 @@ def _money(sgd: float, settings) -> dict:
     return cur.format_triple(float(sgd), settings["usd_per_sgd"], settings["myr_per_sgd"])
 
 
+def _project_name(settings) -> str:
+    """Parent title; tolerant of pre-migration rows missing the column."""
+    if settings is None:
+        return "Untitled project"
+    try:
+        name = settings["project_name"]
+    except (IndexError, KeyError):
+        return "Untitled project"
+    return name or "Untitled project"
+
+
 def sgd_display(sgd: float, code: str, usd: float, myr: float) -> float:
     """Re-express a stored SGD amount in the currency it was last typed in."""
     code = (code or "SGD").upper()
@@ -237,6 +248,7 @@ def project_context(conn, *, page: str | None = "projects") -> dict:
     return {
         "page": page,
         "settings": settings,
+        "project_name": _project_name(settings),
         "rows": rows,
         "project_options": [{"id": int(r["id"]), "name": r["name"]}
                             for r in services.list_projects(conn)],
@@ -289,6 +301,7 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
     return {
         "page": page,
         "settings": settings,
+        "project_name": _project_name(settings),
         "available": available,
         "pool_items": pool_items,
         "totals": totals,
@@ -307,6 +320,7 @@ def optimize_context(conn, *, page: str | None = "optimize") -> dict:
     return {
         "page": page,
         "settings": settings,
+        "project_name": _project_name(settings),
         "metric": str(settings["optimize_metric"]).lower(),
         "last": last,
         "has_result": LAST_OPTIMIZE is not None,
@@ -361,6 +375,7 @@ def contest_context(conn, *, page: str | None = "contest") -> dict:
     return {
         "page": page,
         "settings": settings,
+        "project_name": _project_name(settings),
         "active": active,
         "left": card(settings["contest_left_id"]),
         "right": card(settings["contest_right_id"]),
@@ -413,6 +428,20 @@ def project_list_html() -> str:
 def root() -> RedirectResponse:
     """Landing page redirects to the projects tab."""
     return RedirectResponse(url="/projects", status_code=307)
+
+
+@app.get("/export.md")
+@app.get("/export")
+def export_markdown() -> PlainTextResponse:
+    """Download a markdown document of the overall project and every sub-project."""
+    with get_conn() as conn:
+        body = services.export_markdown(conn)
+        filename = services.export_filename(conn)
+    return PlainTextResponse(
+        body,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---- Projects --------------------------------------------------------------
@@ -488,6 +517,16 @@ async def set_rates(request: Request, usd_per_sgd: str = Form("0"), myr_per_sgd:
         services.update_rates(conn, usd, myr)
         ctx = project_context(conn, page=None)
     return HTMLResponse(render_partial("_partials/budget_card.html", dict(ctx, flash=None)))
+
+
+@app.post("/settings/name")
+async def set_name(request: Request, name: str = Form("")) -> HTMLResponse:
+    with get_conn() as conn:
+        services.update_project_name(conn, name)
+        ctx = project_context(conn, page=None)
+    if getattr(request.state, "is_hx", False):
+        return HTMLResponse(render_partial("_partials/header_title.html", dict(ctx, flash=None)))
+    return RedirectResponse(url="/projects", status_code=303)
 
 
 # ---- Optimize --------------------------------------------------------------

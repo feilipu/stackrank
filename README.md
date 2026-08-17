@@ -19,7 +19,7 @@ uvicorn stackrank.main:app --reload --app-dir src
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The first launch seeds 12 example projects and a S$250,000 budget.
 
-Tabs: **Projects**, **Optimize**, **Pool**, **Contest**.
+Tabs: **Projects**, **Optimize**, **Pool**, **Contest**. The header title is the overall project name (rename in place). **Export** downloads a markdown document of every sub-project. In-pool items are green; out-of-pool items are amber.
 
 ## Tests
 

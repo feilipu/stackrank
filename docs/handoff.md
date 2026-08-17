@@ -1,8 +1,8 @@
 # Handoff — Project Stack Ranker
 
-**Date:** 2026-08-17  
+**Date:** 2026-08-18  
 **Repo:** `/Users/phillip/Projects/stackrank` (`main`)  
-**Status:** Spec is implemented. pytest **33 passed**. Suggested next-work items **1–6 are done**. Repo is git `main` @ `9e762c5` plus a follow-up docs commit. Do not rebuild the app.
+**Status:** Spec is implemented plus three new features (rename overall project, in/out colour, markdown export). pytest **37 passed**. Do not rebuild the app.
 
 This document is for the next session or agent. Read this first, then the design docs only if you need algorithm or route detail.
 
@@ -56,6 +56,14 @@ Also wired `request.state.is_hx` from the `HX-Request` header. `POST /projects` 
 ```
 
 Playwright WebKit: `/pool` → click Projects → `/projects` with `#project-list` and 11 badges; Optimize then back to Projects still 200.
+
+---
+
+## Features added 2026-08-18
+
+1. **Rename overall project.** `settings.project_name` (default `Untitled project`). `POST /settings/name`. Header form `#header-title`. Existing DBs migrate via `ALTER TABLE` in `apply_schema`.
+2. **In/out colour.** Amber (`sub-out`) vs green (`sub-in`) on Projects cards and Pool items; `col-available` / `col-pooled` column tints; `sub-pinned` rail; indigo header + `nav-active`. Text badges remain.
+3. **Markdown export.** `GET /export.md` (alias `/export`) downloads a document of the title, budget, pool counts, and every sub-project (status, cost triple, outcome, Elo, deps, description). Nav **Export** link. Qwen stalled (20 min, no writes); Gemma truncated mid-function (`max_tokens`); parent finished `export_markdown` / route / tests.
 
 ---
 
@@ -189,7 +197,7 @@ What happened:
 - `qwen3-coder` → `qwen3-coder:30b`
 - `gemma4-coder` → `gemma4-coder:26b` (created with `ollama cp gemma-coder:26b gemma4-coder:26b`)
 
-**Recommendation (after items 1–6):** prefer **Qwen38 Coder 27B** for one-item, few-file prompts with a hard stop. It shipped items 3–6 cleanly. Use **Gemma4 Coder 26B** as the fallback when Qwen makes no file edits in ~15 minutes (that is how item 2 landed). Never run both at once. Never hand either the whole repo.
+**2026-08-18 helpers:** Qwen shipped rename (~38 min) and colour (~17 min). Qwen stalled on markdown export (20 min, reads only). Gemma backup died mid-write (`max_tokens` truncation, leftover `pool_cost_slug` stub). Parent finished export. Same rule: one helper, kill after ~15 min with no writes, Gemma next, parent if both fail.
 
 If Ollama is sick again:
 
@@ -214,7 +222,7 @@ Priority order if the user wants more:
 5. ~~Playwright smoke + four-tab script.~~ Done (Qwen): `scripts/smoke_tabs.py`.
 6. ~~`git init`.~~ Done (Qwen): `main` @ `9e762c5`.
 
-If more polish is wanted later: n>24 ILP fallback, optimize-apply redirect to `/pool`, Tailwind FOUC.
+If more polish is wanted later: n>24 ILP fallback, optimize-apply redirect to `/pool`, Tailwind FOUC. Rename / colour / markdown export are done (see Features added 2026-08-18).
 
 Do **not** add React, auth, a live FX API, or a second frontend.
 
@@ -226,7 +234,8 @@ Do **not** add React, auth, a live FX API, or a second frontend.
 |---|---|---|
 | GET | `/` | 307 → `/projects` |
 | GET/POST | `/projects`, `/projects/{id}`, `/projects/{id}/edit`, `/projects/{id}/delete` | CRUD |
-| POST | `/settings/budget`, `/settings/rates`, `/settings/pool-metric` | settings fragments |
+| POST | `/settings/budget`, `/settings/rates`, `/settings/pool-metric`, `/settings/name` | settings fragments / rename |
+| GET | `/export.md`, `/export` | markdown attachment |
 | GET/POST | `/optimize`, `/optimize/run`, `/optimize/apply` | knapsack |
 | GET/POST | `/pool`, `/pool/add/{id}`, `/pool/remove/{id}`, `/pool/reorder`, `/pool/pin/{id}` | pool board |
 | GET/POST | `/contest`, `/contest/start`, `/contest/choose`, `/contest/skip`, `/contest/stop`, `/contest/reset` | contest board |

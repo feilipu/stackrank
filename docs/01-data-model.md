@@ -20,8 +20,11 @@ SQLite file: `data/stackrank.db` (created on first boot). All money is stored in
 | contest_right_id | INTEGER NULL | Current pair B |
 | contest_shown | INTEGER NOT NULL | Pairs presented this contest (including skips) |
 | contest_decided | INTEGER NOT NULL | Pairs with a winner this contest |
+| project_name | TEXT NOT NULL | Overall project title. Default `Untitled project`. 1–80 chars after trim. |
 
-On first boot insert the singleton with `budget_sgd = 250000`, `budget_currency = 'SGD'`.
+On first boot insert the singleton with `budget_sgd = 250000`, `budget_currency = 'SGD'`, `project_name = 'Untitled project'`.
+
+Existing databases are migrated in `apply_schema`: if `project_name` is missing, `ALTER TABLE settings ADD COLUMN project_name TEXT NOT NULL DEFAULT 'Untitled project'`.
 
 **Average conversion rate.** The “average” is the configured pair of rates, shown together so the user can see SGD, USD, and MYR at once. Editing either rate updates every displayed conversion immediately. There is no live FX API.
 

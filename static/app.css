@@ -17,3 +17,11 @@
 .flash-error { color:#991b1b; background:#fee2e2; border:1px solid #fca5a5; padding:.5rem .75rem; border-radius:.5rem; }
 
 [disabled] { opacity:.6; cursor:not-allowed; }
+
+/* In-pool vs out-of-pool sub-project colour signal (feature 2). */
+.sub-out { background:#fff7ed; border-color:#fdba74; }
+.sub-in { background:#ecfdf5; border-color:#6ee7b7; }
+.sub-pinned { box-shadow: inset 3px 0 0 #d97706; }
+.col-available { background:#fff7ed; }
+.col-pooled { background:#ecfdf5; }
+.nav-active { background:#e0e7ff; }

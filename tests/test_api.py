@@ -167,3 +167,34 @@ def test_pool_remaining_shows_three_currencies(client):
     assert resp.status_code == 200
     assert "Remaining" in resp.text
     assert "S$" in resp.text and "US$" in resp.text and "RM" in resp.text
+
+
+def test_rename_overall_project_persists(client):
+    r = client.post("/settings/name", data={"name": "Acme Launch"}, follow_redirects=False)
+    assert r.status_code in (200, 303)
+    page = client.get("/projects")
+    assert page.status_code == 200
+    assert "Acme Launch" in page.text
+
+
+def test_rename_overall_project_rejects_empty(client):
+    r = client.post("/settings/name", data={"name": "   "}, follow_redirects=False)
+    assert r.status_code == 422
+
+
+def test_export_markdown_lists_seed_projects(client):
+    resp = client.get("/export.md")
+    assert resp.status_code == 200
+    assert "text/markdown" in resp.headers.get("content-type", "")
+    assert "Identity" in resp.text and "SSO" in resp.text
+    assert "Budget:" in resp.text
+    assert "### " in resp.text
+    assert "attachment" in (resp.headers.get("content-disposition") or "")
+
+
+def test_export_markdown_uses_renamed_title(client):
+    client.post("/settings/name", data={"name": "Acme Launch"}, follow_redirects=False)
+    resp = client.get("/export.md")
+    assert resp.status_code == 200
+    assert resp.text.startswith("# Acme Launch")
+    assert "acme-launch.md" in (resp.headers.get("content-disposition") or "")

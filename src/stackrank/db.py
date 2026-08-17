@@ -15,6 +15,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS settings (
     id INTEGER PRIMARY KEY CHECK (id = 1),
+    project_name TEXT NOT NULL DEFAULT 'Untitled project',
     budget_sgd REAL NOT NULL,
     budget_currency TEXT NOT NULL,
     usd_per_sgd REAL NOT NULL,
@@ -95,6 +96,12 @@ def connect(path: str | os.PathLike | None = None) -> sqlite3.Connection:
 
 def apply_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)")}
+    if "project_name" not in cols:
+        conn.execute(
+            "ALTER TABLE settings ADD COLUMN project_name "
+            "TEXT NOT NULL DEFAULT 'Untitled project'"
+        )
     row = conn.execute("SELECT id FROM settings WHERE id = 1").fetchone()
     if row is None:
         conn.execute(

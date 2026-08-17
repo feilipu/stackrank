@@ -17,9 +17,9 @@ Parent (Grok 4.6) then:
 
 ## Tests
 
-`pytest` from the repo root: **33 passed**.
+`pytest` from the repo root: **37 passed**.
 
-Suggested next-work items 1–6 from the handoff are done. See [handoff.md](handoff.md).
+Suggested next-work items 1–6 are done. Added 2026-08-18: overall project rename, in/out colour, markdown export (`GET /export.md`). See [handoff.md](handoff.md).
 
 ## How to run
 

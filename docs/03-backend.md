@@ -17,8 +17,9 @@ HTML pages use Jinja. Mutations that the UI follows with HTMX return HTML fragme
 | `/optimize` | `optimize.html` | metric picker + results |
 | `/pool` | `pool.html` | two columns + totals |
 | `/contest` | `contest.html` | two cards + leaderboard |
+| `/export.md` (alias `/export`) | markdown attachment | documented overall project + sub-projects |
 
-Shared chrome in `base.html`: product name, nav tabs, budget chip (3 currencies), flash/error region (`#flash`).
+Shared chrome in `base.html`: editable overall project name, nav tabs, **Export** link, budget chip (3 currencies), flash/error region (`#flash`).
 
 ## Project routes
 
@@ -31,6 +32,8 @@ Shared chrome in `base.html`: product name, nav tabs, budget chip (3 currencies)
 | POST | `/projects/{id}/delete` | | refresh list |
 | POST | `/settings/budget` | amount, currency | refresh budget card |
 | POST | `/settings/rates` | usd_per_sgd, myr_per_sgd | refresh conversions |
+| POST | `/settings/name` | `name` (1–80 chars) | persist overall title; HTMX returns `#header-title` fragment, else 303 `/projects` |
+| GET | `/export.md` | | `text/markdown` attachment; filename from slugged `project_name` |
 
 Cost may be entered in SGD/USD/MYR; convert to SGD before store.
 
@@ -71,6 +74,29 @@ On block (missing deps / dependents / cannot fit): 409 + error fragment.
 | POST | `/contest/reset` | confirm via `confirm=yes` hidden field |
 
 Return `_partials/contest_board.html`.
+
+## Markdown export
+
+`services.export_markdown(conn)` builds a UTF-8 document:
+
+```
+# {project_name}
+
+Budget: S$…  ·  US$…  ·  RM…
+Pool: N of M in pool · remaining S$…  ·  US$…  ·  RM…
+
+## Sub-projects
+
+### {name}
+- Status: In pool (pinned) | In pool | Not in pool
+- Cost: {triple}
+- Outcome: …
+- Elo: … (W–L, matches)
+- Depends on: … or —
+- Description: … or —
+```
+
+Sub-projects follow `list_projects` order (name, case-insensitive). Do not HTML-escape the body.
 
 ## Error policy
 

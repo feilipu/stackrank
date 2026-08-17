@@ -1,0 +1,10 @@
+<div id="header-title" class="flex items-center gap-2">
+  <span class="text-xs font-semibold uppercase tracking-wide text-slate-400">Stack Ranker</span>
+  <form hx-post="/settings/name" hx-target="#header-title" hx-swap="outerHTML"
+    class="flex items-center gap-2">
+    <input type="text" name="name" value="{{ project_name }}" maxlength="80" required
+      aria-label="Project name"
+      class="w-56 rounded border border-transparent px-1 py-0.5 text-lg font-bold text-brand-dark hover:border-slate-300 focus:border-brand focus:outline-none" />
+    <button type="submit" class="rounded px-2 py-0.5 text-xs font-medium text-brand">Rename</button>
+  </form>
+</div>

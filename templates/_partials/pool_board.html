@@ -28,9 +28,9 @@
   <div class="grid gap-4 md:grid-cols-2">
     <section>
       <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Available</h2>
-      <ul id="available-list" class="min-h-[8rem] space-y-2 rounded-md border bg-slate-100 p-2">
+      <ul id="available-list" class="col-available min-h-[8rem] space-y-2 rounded-md border p-2">
         {% for item in available %}
-          <li class="rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
+          <li class="sub-out rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
             <div class="flex items-start justify-between gap-2">
               <div>
                 <h3 class="font-medium">{{ item.name }}</h3>
@@ -49,9 +49,9 @@
 
     <section>
       <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">In-Budget Success Pool</h2>
-      <ul id="pool-list" class="min-h-[8rem] space-y-2 rounded-md border bg-indigo-50 p-2">
+      <ul id="pool-list" class="col-pooled min-h-[8rem] space-y-2 rounded-md border p-2">
         {% for item in pool_items %}
-          <li class="rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
+          <li class="sub-in {{ "sub-pinned" if item.pinned else "" }} rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
             <div class="flex items-start justify-between gap-2">
               <div>
                 <h3 class="font-medium">{{ item.name }}</h3>

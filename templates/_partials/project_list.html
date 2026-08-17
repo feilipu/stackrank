@@ -44,7 +44,7 @@
   {% endif %}
 
   {% for row in rows %}
-    <article id="project-{{ row.id }}" class="mb-3 rounded-md border bg-white p-4 shadow-sm">
+    <article id="project-{{ row.id }}" class="mb-3 rounded-md border p-4 shadow-sm {{ 'sub-in' if row.in_pool else 'sub-out' }}">
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 class="text-lg font-semibold">{{ row.name }}</h2>

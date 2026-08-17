@@ -22,7 +22,22 @@ In `base.html` `<head>`:
 
 ## Visual design
 
-Clean, modern, readable. Light page (`slate-50` background, white cards, `slate-900` text, indigo accent). Large tap targets. Tab nav with the active route underlined.
+Clean, modern, readable. Light page (`slate-50` background, indigo-tinted header, `slate-900` text, indigo accent). Large tap targets. Tab nav with the active route underlined and `nav-active` (lavender chip).
+
+**In vs out of pool** uses colour *and* text:
+
+| Class | Meaning | Colour |
+|---|---|---|
+| `sub-out` / `col-available` | not in the pool | amber (`#fff7ed` / `#fdba74`) |
+| `sub-in` / `col-pooled` | in the pool | green (`#ecfdf5` / `#6ee7b7`) |
+| `sub-pinned` | pinned in the pool | amber inset rail |
+| `nav-active` | current tab | indigo-100 |
+
+The Projects list still shows an “In pool” badge. Pool columns still say Available / In-Budget Success Pool.
+
+Defined in `static/app.css` so they work even if Tailwind CDN is slow.
+
+Header: editable overall project name (`#header-title`, `POST /settings/name`) plus a small “Stack Ranker” product mark. Nav includes **Export** → `/export.md` (full navigation, not HTMX).
 
 Every money amount uses a helper macro:
 
