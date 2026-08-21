@@ -1,7 +1,7 @@
 """FastAPI app for Project Stack Ranker (routes in docs/03).
 
-The only runtime state that is not persisted -- the most recent optimizer run --
-lives at module level (`LAST_OPTIMIZE`), per the "module global is fine" note.
+The most recent optimizer run is cached in `LAST_OPTIMIZE` and also written to
+`settings.last_optimize_json` so GET /optimize survives a process restart.
 
 User-input validation never produces a 500: `ServiceError` from the service layer
 is mapped globally to an HTML fragment that HTMX retargets into `#flash`.
@@ -102,6 +102,14 @@ def render_partial(name: str, context: dict) -> str:
     return templates.get_template(name).render(context)
 
 
+def pool_board_html(ctx: dict, *, oob: bool = False) -> str:
+    """Pool columns/totals plus OOB fill (fill lives outside #pool-board)."""
+    return (
+        render_partial("_partials/pool_board.html", dict(ctx, pool_board_oob=oob, flash=None))
+        + render_partial("_partials/pool_fill.html", dict(ctx, pool_fill_oob=True, flash=None))
+    )
+
+
 # --- Input coercion --------------------------------------------------------
 
 def to_number(value, *, field: str) -> float:
@@ -115,8 +123,12 @@ def to_number(value, *, field: str) -> float:
 
 
 def to_id_list(items) -> list[int]:
+    if items is None or items == "":
+        return []
+    if isinstance(items, (str, int)):
+        items = [items]
     out: list[int] = []
-    for raw in items or []:
+    for raw in items:
         try:
             num = int(str(raw).strip())
         except (TypeError, ValueError):
@@ -134,10 +146,11 @@ def project_payload(form_data: dict) -> dict:
     return {
         "name": str(form_data.get("name") or "").strip(),
         "description": str(form_data.get("description") or "").strip(),
+        "notes": str(form_data.get("notes") or "").strip()[:500],
         "cost": to_number(cost, field="Cost"),
         "cost_currency": str(form_data.get("cost_currency") or "SGD").upper(),
         "outcome": to_number(outcome, field="Outcome"),
-        "depends_on": to_id_list([str(x) for x in depends_on]),
+        "depends_on": to_id_list(depends_on),
     }
 
 
@@ -217,7 +230,7 @@ def sgd_display(sgd: float, code: str, usd: float, myr: float) -> float:
     return sgd
 
 
-def project_context(conn, *, page: str | None = "projects") -> dict:
+def project_context(conn, *, page: str | None = "projects", q: str = "", pool: str = "all", sort: str = "name", direction: str = "") -> dict:
     settings = services.get_settings(conn)
     usd, myr = settings["usd_per_sgd"], settings["myr_per_sgd"]
     budget_currency = str(settings["budget_currency"]).upper()
@@ -233,6 +246,9 @@ def project_context(conn, *, page: str | None = "projects") -> dict:
                 "id": pid,
                 "name": row["name"],
                 "description": row["description"] or "",
+                "notes": (row["notes"] if "notes" in row.keys() else "") or "",
+                "outcome_per_sgd": round(float(row["outcome"]) / float(row["cost_sgd"]), 4),
+                "elo_per_sgd": round(float(row["elo_rating"]) / float(row["cost_sgd"]), 4),
                 "cost_sgd": float(row["cost_sgd"]),
                 "cost": _money(float(row["cost_sgd"]), settings),
                 "outcome": float(row["outcome"]),
@@ -245,8 +261,37 @@ def project_context(conn, *, page: str | None = "projects") -> dict:
             }
         )
 
+    qn = (q or "").strip().lower()
+    pool_f = (pool or "all").lower()
+    if pool_f not in ("all", "in", "out"):
+        pool_f = "all"
+    sort_f = (sort or "name").lower()
+    if sort_f not in ("name", "cost", "outcome", "elo", "efficiency"):
+        sort_f = "name"
+    dir_f = (direction or "").lower()
+    if dir_f not in ("asc", "desc"):
+        dir_f = "desc" if sort_f in ("elo", "efficiency") else "asc"
+    if qn:
+        rows = [r for r in rows if qn in (r["name"] + " " + r["description"] + " " + r["notes"]).lower()]
+    if pool_f == "in":
+        rows = [r for r in rows if r["in_pool"]]
+    elif pool_f == "out":
+        rows = [r for r in rows if not r["in_pool"]]
+    key_map = {
+        "name": lambda r: r["name"].lower(),
+        "cost": lambda r: r["cost_sgd"],
+        "outcome": lambda r: r["outcome"],
+        "elo": lambda r: r["elo_rating"],
+        "efficiency": lambda r: r["outcome_per_sgd"],
+    }
+    rows = sorted(rows, key=key_map[sort_f], reverse=(dir_f == "desc"))
+
     return {
         "page": page,
+        "list_q": qn,
+        "list_pool": pool_f,
+        "list_sort": sort_f,
+        "list_dir": dir_f,
         "settings": settings,
         "project_name": _project_name(settings),
         "rows": rows,
@@ -262,6 +307,8 @@ def project_context(conn, *, page: str | None = "projects") -> dict:
         "symbols": cur.SYMBOLS,
         "usd_per_sgd": usd,
         "myr_per_sgd": myr,
+        "last_cost_currency": str(settings["last_cost_currency"] if "last_cost_currency" in settings.keys() else "SGD").upper() or "SGD",
+        "theme": str(settings["theme"] if "theme" in settings.keys() else "system").lower() or "system",
     }
 
 
@@ -270,17 +317,25 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
     all_rows = list(services.list_projects(conn))
     in_pool = list(services.pool_rows(conn))
     pool_ids = {int(r["id"]) for r in in_pool}
+    names = services.names_by_id(conn)
+    deps_map = services.dependencies_map(conn)
 
     def decorate(row):
+        pid = int(row["id"])
+        cost_sgd = float(row["cost_sgd"])
         return {
-            "id": int(row["id"]),
+            "id": pid,
             "name": row["name"],
             "description": row["description"] or "",
-            "cost_sgd": float(row["cost_sgd"]),
-            "cost": _money(float(row["cost_sgd"]), settings),
+            "notes": (row["notes"] if "notes" in row.keys() else "") or "",
+            "cost_sgd": cost_sgd,
+            "cost": _money(cost_sgd, settings),
             "outcome": float(row["outcome"]),
+            "outcome_per_sgd": round(float(row["outcome"]) / cost_sgd, 4),
+            "elo_per_sgd": round(float(row["elo_rating"]) / cost_sgd, 4),
             "elo_rating": round(float(row["elo_rating"])),
             "pinned": bool(int(row["pinned"])) if "pinned" in row.keys() else False,
+            "dependencies": [names.get(d, "?") for d in deps_map.get(pid, [])],
         }
 
     pool_items = [decorate(dict(r)) for r in in_pool]
@@ -288,13 +343,21 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
 
     cost_sgd = sum(float(r["cost_sgd"]) for r in in_pool)
     budget_sgd = float(settings["budget_sgd"])
+    usd, myr = settings["usd_per_sgd"], settings["myr_per_sgd"]
+    budget_currency = str(settings["budget_currency"]).upper()
+    fill = services.budget_fill(cost_sgd, budget_sgd)
     remaining = budget_sgd - cost_sgd
+    over_budget = remaining < -1e-9
+    remaining_sgd = abs(remaining) if over_budget else remaining
     totals = {
         "count": len(pool_items),
         "cost": _money(cost_sgd, settings),
-        "remaining_sgd": max(remaining, 0.0),
-        "remaining": _money(max(remaining, 0.0), settings),
-        "over_budget": remaining < -1e-9,
+         "remaining_sgd": remaining_sgd,
+         "remaining": _money(remaining_sgd, settings),
+         "over_budget": over_budget,
+         "fill_ratio_raw": fill["fill_ratio_raw"],
+         "fill_ratio": fill["fill_ratio"],
+         "fill_pct": fill["fill_pct"],
         "outcome": round(sum(float(r["outcome"]) for r in in_pool), 1),
         "elo": round(sum(float(r["elo_rating"]) for r in in_pool), 1),
     }
@@ -307,14 +370,62 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
         "totals": totals,
         "budget_sgd": budget_sgd,
         "triple": _money(budget_sgd, settings),
+        "budget_currency": budget_currency,
+        "budget_amount": round(sgd_display(budget_sgd, budget_currency, usd, myr)),
+        "usd_per_sgd": usd,
+        "myr_per_sgd": myr,
         "budget_triple": _money(budget_sgd, settings)["text"],
         "pool_metric": str(settings["pool_eject_metric"]).lower(),
+        "theme": str(settings["theme"] if "theme" in settings.keys() else "system").lower() or "system",
         "currencies": cur.CURRENCIES,
         "symbols": cur.SYMBOLS,
     }
 
 
+def _optimize_item(pid: int, by_id: dict, settings) -> dict | None:
+    p = by_id.get(int(pid))
+    if p is None:
+        return None
+    return {
+        "id": int(pid),
+        "name": p["name"],
+        "cost_sgd": float(p["cost_sgd"]),
+        "cost": _money(float(p["cost_sgd"]), settings),
+        "outcome": float(p["outcome"]),
+        "elo_rating": round(float(p["elo_rating"])),
+    }
+
+
+def hydrate_last_optimize(conn) -> None:
+    """Reload LAST_OPTIMIZE from SQLite after a process restart."""
+    global LAST_OPTIMIZE
+    if LAST_OPTIMIZE is not None:
+        return
+    payload = services.load_last_optimize(conn)
+    if not payload:
+        return
+    settings = services.get_settings(conn)
+    by_id = {int(p["id"]): p for p in services.list_projects(conn)}
+    selected = [int(x) for x in (payload.get("selected") or [])]
+    excluded = [int(x) for x in (payload.get("excluded") or [])]
+    selected_items = [it for pid in selected if (it := _optimize_item(pid, by_id, settings))]
+    excluded_items = [it for pid in excluded if (it := _optimize_item(pid, by_id, settings))]
+    LAST_OPTIMIZE = {
+        "metric": payload.get("metric"),
+        "selected": selected,
+        "excluded": excluded,
+        "selected_items": selected_items,
+        "excluded_items": excluded_items,
+        "total_cost_sgd": float(payload.get("total_cost_sgd") or 0),
+        "remaining_sgd": float(payload.get("remaining_sgd") or 0),
+        "total_outcome": float(payload.get("total_outcome") or 0),
+        "total_cost_money": _money(float(payload.get("total_cost_sgd") or 0), settings),
+        "remaining_money": _money(float(payload.get("remaining_sgd") or 0), settings),
+    }
+
+
 def optimize_context(conn, *, page: str | None = "optimize") -> dict:
+    hydrate_last_optimize(conn)
     settings = services.get_settings(conn)
     last = dict(LAST_OPTIMIZE or {}) if LAST_OPTIMIZE else {}
     return {
@@ -330,6 +441,7 @@ def optimize_context(conn, *, page: str | None = "optimize") -> dict:
         "budget_triple": cur.format_money(
             float(settings["budget_sgd"]), settings["usd_per_sgd"], settings["myr_per_sgd"]
         ),
+        "theme": str(settings["theme"] if "theme" in settings.keys() else "system").lower() or "system",
         "currencies": cur.CURRENCIES,
         "symbols": cur.SYMBOLS,
     }
@@ -349,6 +461,7 @@ def contest_context(conn, *, page: str | None = "contest") -> dict:
             "id": int(row["id"]),
             "name": row["name"],
             "description": row["description"] or "",
+            "notes": (row["notes"] if "notes" in row.keys() else "") or "",
             "cost_sgd": float(row["cost_sgd"]),
             "cost": _money(float(row["cost_sgd"]), settings),
             "outcome": float(row["outcome"]),
@@ -372,6 +485,7 @@ def contest_context(conn, *, page: str | None = "contest") -> dict:
         ],
         key=lambda d: (-d["elo_rating"], d["name"].lower()),
     )
+    last_match = services.contest_last_match(conn)
     return {
         "page": page,
         "settings": settings,
@@ -381,8 +495,11 @@ def contest_context(conn, *, page: str | None = "contest") -> dict:
         "right": card(settings["contest_right_id"]),
         "leaderboard": leaderboard,
         "progress": services.contest_progress(conn),
+        "last_match": last_match,
+        "can_undo": last_match is not None,
         "triple": cur.format_triple(float(settings["budget_sgd"]), usd, myr),
         "budget_triple": cur.format_money(float(settings["budget_sgd"]), usd, myr),
+         "theme": str(settings["theme"] if "theme" in settings.keys() else "system").lower() or "system",
         "currencies": cur.CURRENCIES,
         "symbols": cur.SYMBOLS,
     }
@@ -412,6 +529,17 @@ def build_optimize_result(conn, metric: str | None = None) -> dict:
     result["total_cost_money"] = _money(float(result["total_cost_sgd"]), settings)
     result["remaining_money"] = _money(float(result["remaining_sgd"]), settings)
     LAST_OPTIMIZE = result
+    services.save_last_optimize(
+        conn,
+        {
+            "metric": result.get("metric"),
+            "selected": list(result.get("selected") or []),
+            "excluded": list(result.get("excluded") or []),
+            "total_cost_sgd": float(result.get("total_cost_sgd") or 0),
+            "remaining_sgd": float(result.get("remaining_sgd") or 0),
+            "total_outcome": float(result.get("total_outcome") or 0),
+        },
+    )
     return result
 
 
@@ -430,12 +558,17 @@ def root() -> RedirectResponse:
     return RedirectResponse(url="/projects", status_code=307)
 
 
+def _export_ccy(ccy: str) -> str:
+    return services.export_currency(ccy)
+
+
 @app.get("/export.md")
 @app.get("/export")
-def export_markdown() -> PlainTextResponse:
+def export_markdown(ccy: str = "SGD") -> PlainTextResponse:
     """Download a markdown document of the overall project and every sub-project."""
+    currency = _export_ccy(ccy)
     with get_conn() as conn:
-        body = services.export_markdown(conn)
+        body = services.export_markdown(conn, currency)
         filename = services.export_filename(conn)
     return PlainTextResponse(
         body,
@@ -444,12 +577,67 @@ def export_markdown() -> PlainTextResponse:
     )
 
 
+@app.get("/export.html")
+def export_html_page(request: Request, ccy: str = "SGD"):
+    """Coloured HTML report inside the same sticky tab chrome as the other pages."""
+    currency = _export_ccy(ccy)
+    with get_conn() as conn:
+        ctx = project_context(conn, page="export")
+        export_style, export_body = services.export_html_parts(conn, currency)
+        filename = services.export_filename(conn, ext="html")
+    return templates.TemplateResponse(
+        request,
+        "export.html",
+        dict(ctx, flash=None, export_style=export_style, export_body=export_body),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@app.get("/export/contractor.md")
+def export_contractor_markdown(ccy: str = "SGD") -> PlainTextResponse:
+    currency = _export_ccy(ccy)
+    with get_conn() as conn:
+        body = services.export_contractor_markdown(conn, currency)
+        filename = services.export_filename(conn, ext="md").replace(".md", "-contractor.md")
+    return PlainTextResponse(
+        body,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/export/contractor.html")
+def export_contractor_html_page(request: Request, ccy: str = "SGD"):
+    """Accepted-pool list for a contractor, same tab chrome as the full report."""
+    currency = _export_ccy(ccy)
+    with get_conn() as conn:
+        ctx = project_context(conn, page="export")
+        export_style, export_body = services.export_contractor_html_parts(conn, currency)
+        filename = services.export_filename(conn, ext="html").replace(
+            ".html", "-contractor.html"
+        )
+    return templates.TemplateResponse(
+        request,
+        "export.html",
+        dict(ctx, flash=None, export_style=export_style, export_body=export_body),
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 # ---- Projects --------------------------------------------------------------
 
 @app.get("/projects")
-def projects_page(request: Request):
+def projects_page(
+    request: Request,
+    q: str = "",
+    pool: str = "all",
+    sort: str = "name",
+    dir: str = "",
+):
     with get_conn() as conn:
-        ctx = project_context(conn, page="projects")
+        ctx = project_context(
+            conn, page="projects", q=q, pool=pool, sort=sort, direction=dir
+         )
     return templates.TemplateResponse(request, "projects.html", dict(ctx, flash=None))
 
 
@@ -471,12 +659,23 @@ def project_edit_form(request: Request, project_id: int):
             raise services.ServiceError("Project not found.", 404)
         ctx = project_context(conn, page=None)
         selected = [int(d) for d in services.dependencies_map(conn).get(project_id, [])]
+    keys = row.keys()
+    if "cost_amount" in keys and row["cost_amount"] is not None:
+        entered = float(row["cost_amount"])
+        entered_ccy = str(row["cost_currency"] if "cost_currency" in keys else "SGD").upper()
+    else:
+        entered = float(row["cost_sgd"])
+        entered_ccy = "SGD"
+    if entered_ccy not in ("SGD", "USD", "MYR"):
+        entered_ccy = "SGD"
     return templates.TemplateResponse(
          request,
 "_partials/project_edit.html",
           dict(ctx, editing=project_id,
-             cost_sgd=round(float(row["cost_sgd"]), 2),
+             cost_amount=f"{entered:.2f}",
+             cost_currency=entered_ccy,
              name=row["name"], description=row["description"] or "",
+             notes=(row["notes"] if "notes" in row.keys() else "") or "",
              outcome=float(row["outcome"]), selected=selected, flash=None)
          )
 
@@ -504,9 +703,29 @@ async def delete_project(project_id: int, request: Request):
 async def set_budget(request: Request, amount: str = Form(""), currency: str = Form("SGD")) -> HTMLResponse:
     value = to_number(amount if amount else "0", field="Budget")
     with get_conn() as conn:
-        services.update_budget(conn, value, (currency or "SGD").upper())
+        result = services.update_budget(conn, value, (currency or "SGD").upper())
         ctx = project_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/budget_card.html", dict(ctx, flash=None)))
+        pool_ctx = pool_context(conn, page="pool")
+
+    flash_class = ""
+    flash_message = ""
+    if result["ejected_names"] and not result["over_budget"]:
+        flash_class = "flash-ok"
+        flash_message = f"Removed from the success pool to fit the new budget: {', '.join(result["ejected_names"])}."
+    elif result["over_budget"] and not result["ejected_names"]:
+        flash_class = "flash-error"
+        flash_message = "Budget is below the cost of pinned items in the success pool. Unpin or remove them, or raise the budget."
+    elif result["over_budget"] and result["ejected_names"]:
+        flash_class = "flash-error"
+        flash_message = f"Removed from the success pool to fit the new budget: {', '.join(result["ejected_names"])}. Budget is below the cost of pinned items in the success pool. Unpin or remove them, or raise the budget."
+
+    return HTMLResponse(
+        render_partial("_partials/budget_card.html", dict(ctx, flash=None)) +
+        pool_board_html(pool_ctx, oob=True) +
+        render_partial("_partials/flash.html", dict(flash_message=flash_message, flash_class=flash_class)),
+        headers={"HX-Trigger": "list-refreshed"} if getattr(request.state, "is_hx", False) else {}
+    )
+
 
 
 @app.post("/settings/rates")
@@ -517,6 +736,26 @@ async def set_rates(request: Request, usd_per_sgd: str = Form("0"), myr_per_sgd:
         services.update_rates(conn, usd, myr)
         ctx = project_context(conn, page=None)
     return HTMLResponse(render_partial("_partials/budget_card.html", dict(ctx, flash=None)))
+
+
+_THEME_NEXT = {
+    "/projects",
+    "/optimize",
+    "/pool",
+    "/contest",
+    "/export.html",
+    "/export/contractor.html",
+}
+
+
+@app.post("/settings/theme")
+async def set_theme(
+    theme: str = Form("system"), next: str = Form("")
+) -> RedirectResponse:
+    with get_conn() as conn:
+        services.set_theme(conn, theme)
+    dest = next if next in _THEME_NEXT else "/projects"
+    return RedirectResponse(url=dest, status_code=303)
 
 
 @app.post("/settings/name")
@@ -557,11 +796,10 @@ async def optimize_apply(request: Request, selected: list[str] | None = Form(Non
         if not ids and LAST_OPTIMIZE is not None:
             ids = [int(x) for x in LAST_OPTIMIZE.get("selected", [])]
         services.apply_optimize_to_pool(conn, ids)
-    note = (
-         f'<div id="applied-note" class="alert alert-ok">Selection applied to the '
-         f'In-Budget Success Pool ({len(ids)} project{"s" if len(ids) != 1 else ""}).</div>'
-     )
-    return HTMLResponse(note, headers={"HX-Trigger": "opt-applied"})
+    target = f"/pool?applied={len(ids)}"
+    if getattr(request.state, "is_hx", False):
+        return HTMLResponse("", status_code=200, headers={"HX-Redirect": target})
+    return RedirectResponse(url=target, status_code=303)
 
 
 # ---- Pool ------------------------------------------------------------------
@@ -570,7 +808,10 @@ async def optimize_apply(request: Request, selected: list[str] | None = Form(Non
 def pool_page(request: Request):
     with get_conn() as conn:
         ctx = pool_context(conn, page="pool")
-    return templates.TemplateResponse(request, "pool.html", dict(ctx, flash=None))
+    applied_str = request.query_params.get("applied")
+    applied = int(applied_str) if applied_str and applied_str.isdigit() else None
+    return templates.TemplateResponse(
+         request, "pool.html", dict(ctx, flash=None, applied=applied))
 
 
 @app.post("/pool/add/{project_id}")
@@ -578,7 +819,7 @@ async def pool_add(project_id: int) -> HTMLResponse:
     with get_conn() as conn:
         services.add_to_pool(conn, project_id)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/pool_board.html", dict(ctx, flash=None)))
+    return HTMLResponse(pool_board_html(ctx))
 
 
 @app.post("/pool/remove/{project_id}")
@@ -586,7 +827,7 @@ async def pool_remove(project_id: int) -> HTMLResponse:
     with get_conn() as conn:
         services.remove_from_pool(conn, project_id)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/pool_board.html", dict(ctx, flash=None)))
+    return HTMLResponse(pool_board_html(ctx))
 
 
 @app.post("/pool/reorder")
@@ -595,7 +836,7 @@ async def pool_reorder(ids: list[str] | None = Form(None)) -> HTMLResponse:
     with get_conn() as conn:
         services.reorder_pool(conn, ordered)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/pool_board.html", dict(ctx, flash=None)))
+    return HTMLResponse(pool_board_html(ctx))
 
 
 @app.post("/pool/pin/{project_id}")
@@ -603,7 +844,7 @@ async def pool_pin(project_id: int) -> HTMLResponse:
     with get_conn() as conn:
         services.toggle_pin(conn, project_id)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/pool_board.html", dict(ctx, flash=None)))
+    return HTMLResponse(pool_board_html(ctx))
 
 
 @app.post("/settings/pool-metric")
@@ -612,7 +853,7 @@ async def set_pool_metric(metric: str = Form("elo")) -> HTMLResponse:
     with get_conn() as conn:
         services.set_pool_metric(conn, metric_norm)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/pool_board.html", dict(ctx, flash=None)))
+    return HTMLResponse(pool_board_html(ctx))
 
 
 # ---- Contest ---------------------------------------------------------------
@@ -650,6 +891,14 @@ async def contest_skip() -> HTMLResponse:
         settings = services.get_settings(conn)
         if settings["contest_active"] and settings["contest_left_id"] is not None:
             services.contest_skip(conn)     # skip the current pair, advance to next
+        ctx = contest_context(conn, page=None)
+    return HTMLResponse(render_partial("_partials/contest_board.html", dict(ctx, flash=None)))
+
+
+@app.post("/contest/undo")
+async def contest_undo() -> HTMLResponse:
+    with get_conn() as conn:
+        services.contest_undo(conn)
         ctx = contest_context(conn, page=None)
     return HTMLResponse(render_partial("_partials/contest_board.html", dict(ctx, flash=None)))
 

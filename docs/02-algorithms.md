@@ -134,3 +134,5 @@ Reordering inside the pool updates `position` only. Reorder must not break budge
 Pin toggle: pinned items are skipped by auto-eject. Pinning never changes membership.
 
 Live totals always shown: total cost (3 currencies), remaining budget, total outcome, total Elo, count.
+
+shrinking the budget runs rebalance_pool using the same metric and pins; ejecting a victim also ejects its unpinned dependents; if only pin-protected items remain, the new budget is kept and the pool may stay over.

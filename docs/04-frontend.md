@@ -6,11 +6,13 @@ Server-rendered. No build step. No Node required.
 
 In `base.html` `<head>`:
 
-- Tailwind CSS Play CDN (`https://cdn.tailwindcss.com`) with a small `tailwind.config` for brand colors.
-- HTMX 2 from jsDelivr.
-- SortableJS from jsDelivr.
+- Tailwind CSS Play 3.4.17 from `static/vendor/tailwindcss.js` with a small `tailwind.config` for brand colors.
+- HTMX 2.0.4 from `static/vendor/htmx.min.js`.
+- SortableJS 1.15.2 from `static/vendor/Sortable.min.js`.
 
-`static/app.css` only for things Tailwind CDN cannot express (card min-heights, contest progress bar).
+No CDN at runtime. Refresh URLs are in `static/vendor/README.md`.
+
+`static/app.css` only for things the Tailwind Play build cannot express (card min-heights, contest progress bar).
 
 `static/app.js`:
 
@@ -31,13 +33,13 @@ Clean, modern, readable. Light page (`slate-50` background, indigo-tinted header
 | `sub-out` / `col-available` | not in the pool | amber (`#fff7ed` / `#fdba74`) |
 | `sub-in` / `col-pooled` | in the pool | green (`#ecfdf5` / `#6ee7b7`) |
 | `sub-pinned` | pinned in the pool | amber inset rail |
-| `nav-active` | current tab | indigo-100 |
+| `nav-active` | current tab | indigo-100; dark: indigo-600 fill + white type (same as theme buttons) |
 
-The Projects list still shows an “In pool” badge. Pool columns still say Available / In-Budget Success Pool.
+The Projects list still shows an “In pool” badge. Pool columns still say Available Pool / In-Budget Success Pool.
 
-Defined in `static/app.css` so they work even if Tailwind CDN is slow.
+Defined in `static/app.css` so they work even if the Tailwind Play script is slow.
 
-Header: editable overall project name (`#header-title`, `POST /settings/name`) plus a small “Stack Ranker” product mark. Nav includes **Export** → `/export.md` (full navigation, not HTMX).
+Header: editable overall project name (`#header-title`, `POST /settings/name`) plus a small “Stack Ranker” product mark. Nav tabs (Projects, Optimize, Pool, Contest, Export) live in the sticky `site-top` bar on every page, including `/export.html`. Export is the same chrome plus the coloured report; it links to `/export.md`.
 
 Every money amount uses a helper macro:
 
@@ -64,11 +66,13 @@ S$12,000  ·  US$8,880  ·  RM41,400
 
 Two equal columns on desktop, stacked on mobile (`md:grid-cols-2`).
 
-- Available: projects not in pool.
+- Available Pool: projects not in the success pool.
 - In-Budget Success Pool: ordered list, pin button on each card, drag handle.
 - Sticky totals bar: cost, remaining, outcome, Elo, count.
 - Metric select for auto-eject.
-- Over-budget never appears; blocked actions flash in `#flash`.
+- Over-budget can appear after a budget shrink when pins block eject (flash + Over-by totals). Blocked actions still flash in #flash.
+- Site tabs are sticky (`site-top`). On the Pool tab, `#pool-sticky` under the tabs is 50/50 Budget+FX (left) and the duck pool (right); Auto-eject metric sits under that row. Narrow viewports stack; Budget+FX keep a min width of 18rem.
+- `#pool-fill` is HTML water. Height is `calc(var(--pool-fill-ratio) * 100%)` from the basin floor (side view). At 100% the water and duck sit at the top of the frame. Empty interior is transparent. Caption is `N% full`. Over-budget tints the water red. HTMX OOB-swaps `#pool-fill`.
 
 ## Contest tab
 
@@ -83,3 +87,7 @@ Two equal columns on desktop, stacked on mobile (`md:grid-cols-2`).
 - Buttons have visible labels (not icon-only).
 - Color is not the only status signal (text for errors).
 - Contest buttons are real `<button>` elements, keyboard reachable.
+
+## Theme, favicon, empty art
+
+`settings.theme` is `system` (default), `light`, or `dark`. `POST /settings/theme` stores it. `base.html` sets `data-theme` on `<html>` and a blocking script in the document adds class `dark` when the theme is `dark`, or when it is `system` and `prefers-color-scheme: dark`. Tailwind Play uses `darkMode: 'class'`. Header control is `_partials/theme_switch.html` (System / Light / Dark). Favicon is `static/favicon.svg`. Empty lists (Projects, Available Pool, Contest idle) keep their sentences and draw `_partials/empty_art.html` above the text. `html.dark` overrides live in `static/app.css`.

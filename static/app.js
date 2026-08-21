@@ -23,6 +23,8 @@
     avail._sortable = Sortable.create(avail, {
       group: "stackrank-pool",
       animation: 150,
+      filter: "button",
+      preventOnFilter: false,
       onAdd: function (evt) {
         var id = evt.item.getAttribute("data-id");
         setDisabled(true);
@@ -32,6 +34,8 @@
     pool._sortable = Sortable.create(pool, {
       group: "stackrank-pool",
       animation: 150,
+      filter: "button",
+      preventOnFilter: false,
       onAdd: function (evt) {
         var id = evt.item.getAttribute("data-id");
         setDisabled(true);

@@ -15,12 +15,14 @@ Three complementary decision modes:
 | Backend | Python 3.11+ / FastAPI |
 | Persistence | SQLite (`data/stackrank.db`) |
 | Templates | Jinja2 |
-| Front-end | Server-rendered HTML + HTMX + Tailwind CDN + SortableJS CDN |
-| Export | `GET /export.md` — markdown document of the overall project + every sub-project |
+| Front-end | Server-rendered HTML + vendored HTMX, Tailwind Play, SortableJS |
+| Export | `GET /export.html` (coloured HTML) and `GET /export.md` (markdown with the same green/amber grouping) |
 | Auth | None |
 | Currency base | SGD; also display/set budget in USD and MYR |
 
-Run with one command after `pip install -r requirements.txt`:
+Friend-ready: `./run.sh` (creates `.venv`, installs `requirements.txt`, opens http://127.0.0.1:8000).
+
+Dev with reload after `pip install -r requirements.txt`:
 
 ```bash
 uvicorn stackrank.main:app --reload --app-dir src
@@ -68,4 +70,4 @@ docs/                  # these design documents
 4. Jinja/HTMX UI (`04-frontend.md`)
 5. Tests matching these specs (`05-testing.md`)
 
-Do not introduce React, Node, or a separate API SPA. Tailwind, HTMX, and SortableJS load from CDNs.
+Do not introduce React, Node, or a separate API SPA. Tailwind, HTMX, and SortableJS are vendored in `static/vendor/`.

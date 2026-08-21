@@ -1,110 +1,187 @@
-Prompt for Grok Build
+Prompt for Grok Build — Project Stack Ranker (rebuild from current product)
 
-Build a simple, single-user web application called Project Stack Ranker.
+You are the parent orchestrator. Rebuild this application from this prompt and
+implementation_plan.md. Do not invent a second frontend, React, auth, live FX,
+or a Node build. Hand implementation to local helpers as **tiny slices only**
+(see implementation_plan.md). One helper at a time.
 
-Use one /model Qwen38 Coder 27B (Ollama) as your servant to implement many components of this work.
-You must create the design documents for each component of the technical work, then hand it off for implmentation with testing designed to support your design specifications.
+Local helpers (if available): `qwen38-coder` then `gemma4-coder` on the same
+slice. A slice is one function, one route handler, one template partial, one
+test, or one docs paragraph. One file path. One acceptance check. Never dump
+this whole prompt into a worker.
 
 # Goal
 
-Create a tool that lets me manage a list of sub-projects. Each sub-project has:
+A single-user local web app that ranks and funds **sub-projects** under one
+overall project name and a budget. Three complementary decision modes:
 
-Name
-Description (optional)
-Cost (positive number)
-Outcome score (positive number – higher is better)
-Dependencies (zero or more other sub-projects that must be selected first)
-Elo rating (for the beauty contest)
+1. Automatic optimize — exact 0/1 knapsack with precedence (ancestor-closed).
+2. In-budget success pool — drag/click into a pool that never exceeds budget.
+3. Elo beauty contest — pairwise A/B comparisons (K = 32) with a live board.
 
-The tool must support three complementary ways of deciding what gets funded:
+# Product (must match this behaviour)
 
-Automatic optimization – maximize total outcome under budget + dependency constraints (knapsack-style).
-Manual drag-and-drop pool – drag projects into an “In-Budget Success Pool”. Adding a project that would exceed the budget automatically forces the lowest-priority projects currently in the pool out until the budget is respected.
-Head-to-head beauty contest with Elo ratings – pairwise A/B comparisons that update Elo ratings and produce a live ranking.
+## Overall project
 
-# Core Requirements
+- Editable title, default `Untitled project`, 1–80 chars after trim.
+- Stored in `settings.project_name`. Rename in the sticky header.
 
-## Data Model
+## Sub-projects
 
-Sub-projects: id, name, description, cost, outcome, dependencies (list of other project IDs), elo_rating (float, default 1500)
-One global configurable budget
-All data must persist across restarts (durable storage)
+Each sub-project has:
 
-## Functionality
+- name (unique, 1–80 chars)
+- description (optional)
+- notes (optional, max 500 chars, shown on cards and export)
+- **entered cost**: `cost_amount` (the number typed) + `cost_currency`
+  (`SGD` | `USD` | `MYR`)
+- `cost_sgd` — derived at the current FX rates; used by knapsack, pool, Elo/S$
+- outcome (positive)
+- dependencies (zero or more other sub-projects; no self-edges, no cycles)
+- Elo 1500, matches/wins/losses
+- created_at / updated_at ISO-8601 UTC
 
-A. Project Management
+Edit form must show the **entered** amount and currency, not a reverse
+conversion from SGD. Saving unchanged values must keep those fields exactly.
+Changing USD/MYR rates recomputes every `cost_sgd` from entered amount+currency
+and rebalances the pool.
 
-Full CRUD for sub-projects
-Ability to set/edit the total budget
-Validation: no circular dependencies, positive costs and outcomes
+`settings.last_cost_currency` is the add-form default (updated on create and
+edit). Fallback SGD.
 
-B. Automatic Optimization
+## Budget and FX
 
-“Optimize” button that runs a 0/1 Knapsack with precedence constraints
-Prefer topological sort + dynamic programming (exact solution for ≤ 25–30 projects). PuLP ILP is also acceptable.
-Show selected set, total outcome, total cost, remaining budget, and excluded projects
-Optionally allow the optimizer to use Elo rating (or a blend of Elo + outcome) as the value metric
+- Base unit SGD. Rates are “foreign per 1 SGD” (`usd_per_sgd` default 0.74,
+  `myr_per_sgd` default 3.45). No live FX API.
+- Budget form: amount + currency. Persist `budget_sgd` and `budget_currency`.
+- Every money display is a triple: `S$…  ·  US$…  ·  RM…`.
+- Default budget S$250,000.
 
-C. Drag-and-Drop In-Budget Pool (Interactive Manual Ranking)
+## Projects tab
 
-A visual “Available Projects” list and an “In-Budget Success Pool”
-Drag projects from Available into the Pool (and back out)
-When a drag would cause the pool to exceed the budget, automatically eject the lowest-priority project(s) currently in the pool until the new project fits
-The pool should always respect the current budget and dependencies (warn or block if a dependency is missing)
-Live display of current total cost, remaining budget, and total outcome of the pool
-Ability to lock/pin high-priority projects so they cannot be auto-ejected
-Priority for auto-ejection can be based on Elo rating, outcome score, or a combination
+- Add form, in-place edit, delete with confirm.
+- Search `q` (name, description, notes, case-insensitive).
+- Filter `pool=all|in|out`. Sort `name|cost|outcome|elo|efficiency`; `dir`.
+- Efficiency: `outcome/cost_sgd` and `elo/cost_sgd` on cards.
+- In-pool cards green (`sub-in`), out-of-pool amber (`sub-out`).
+- SVG dependency sketch: current project on the right, deps on the left,
+  dynamic box width (no truncated titles), class `dep-sketch`.
+- Empty list: empty-state art + sentence.
 
-D. Head-to-Head Beauty Contest with Elo Ratings
+## Optimize tab
 
-Show two sub-projects at a time as cards
-User chooses “A is better”, “B is better”, or “Skip”
-Update both projects’ Elo ratings using the standard Elo formula (K-factor around 32 is fine)
-Maintain a live ranking of all projects ordered by current Elo rating
-Show each project’s current Elo, number of matches played, and win/loss record
-Allow the resulting Elo ranking (or the Elo scores themselves) to feed into both the automatic optimizer and the drag-and-drop pool
-Progress indicator and ability to stop the contest at any time
-Option to reset Elo ratings back to 1500
+- Metric: outcome | elo | blend.
+  `blend = 0.6 * outcome + 0.4 * (elo / 15)`.
+- Exact DP, costs rounded to integer SGD, n typically ≤ 30, ancestor-closed.
+- Show selected, excluded, totals, remaining (3 currencies).
+- Apply writes the selected set into the pool (replace pool membership).
+- Last run persisted in `settings.last_optimize_json` so GET survives restart.
 
-E. Multiple currency support
+## Pool tab
 
-Support three currencies at the same time, with a average conversion rate. base currency is singapore dollar, with us dollar and malaysian ringgit as alternatives.
-Set the goal in one of the three available currencies.
+- Available column vs In-Budget Success Pool. SortableJS + HTMX.
+- Add: if the new item does not fit, eject lowest unpinned by pool metric
+  (outcome | elo | blend). Pinned items never auto-eject. Missing dependencies
+  are pulled in when possible; otherwise 409.
+- Remove blocked if a pooled dependent still needs this project.
+- Pin toggle. Reorder persists positions (0 = highest priority).
+- Sticky site tabs. Under them, 50/50 sticky row: Budget+FX (left, min 18rem)
+  and duck-pool fill (right). Auto-eject metric under that row.
+- `#pool-fill`: HTML water, fill from the basin floor (side view). Caption
+  `N% full`, bold and readable. Over-budget tints water red. Duck on the
+  surface, waves clipped to water, terracotta rim even at 100%.
+- Totals: in-pool count, spent, remaining (or over-by), outcome, Elo sum.
 
+## Contest tab
 
-## Tech Stack (keep it simple and robust)
+- Two large cards, A better / Skip / B better. K = 32.
+- Skip: no Elo/W-L change; still counted as shown.
+- Pairing: unseen unordered pairs first, then closest Elo; randomize A/B.
+- Progress: unique pairs decided. Stop, reset (confirm), **undo last match**
+  (restore Elo and W-L from `contest_matches` before/after columns).
+- Recap of last action. Leaderboard. Empty art when idle.
 
-Backend: Python + FastAPI
-Database: SQLite
-Frontend: Server-rendered with Jinja2 + HTMX + Tailwind CSS (or Bootstrap). Use a lightweight drag-and-drop library that works well with HTMX (e.g. SortableJS).
-No authentication required
+## Export tab
 
-## UI Expectations
+Same sticky chrome as other tabs.
 
-Clean, modern, readable interface
-Clear sections or tabs for:
-Project list & editing
-Budget setting
-Automatic Optimize results
-Drag-and-drop Pool
-Beauty Contest (with live Elo leaderboard)
+- Full report: compact HTML tables, pool then excluded, one row per project.
+  Print CSS ~8pt so 35–50 items fit ~2–3 pages.
+- Contractor list: accepted (in-pool) only, no Budget line in the report
+  body, **Total = sum of pool cost_sgd** in the selected currency, stated
+  twice (header + under table).
+- Currency selectable via `?ccy=SGD|USD|MYR` (toolbar GET form + links).
+- Screen dark theme: pool rows dark green + light type; excluded dark amber;
+  beat the injected light `_SHEET_STYLE` with `html.dark` `!important` in
+  `app.css`. Print stays light.
+- Markdown download for both views. Filename from slugged project name.
+- Colour key: green `#ecfdf5` / `#047857` in pool, amber `#fff7ed` / `#c2410c`
+  excluded (light); dark-mode greens/ambers as in `html.dark .sub-in/.sub-out`.
 
-Form for adding/editing projects with a good dependency selector
-Live feedback when dragging (budget numbers update immediately)
-In the beauty contest view: two large cards + ranking table on the side or below
+## Theme
 
-## Non-functional
+- `settings.theme`: `system` | `light` | `dark`. Follow `prefers-color-scheme`
+  when system. Blocking script sets `html.dark` before paint.
+- Theme POST stays on the current tab (`next=` allowlisted paths).
+- Selected **nav tab** uses the same chip as the selected theme button:
+  `bg-indigo-600 text-white` (Tailwind Play injects after `app.css`; do not
+  rely on `text-brand-dark` in dark mode).
+- White Tailwind frames in dark (contest, projects, pool budget/rates/totals,
+  export) need `html.dark` scoped `!important` (Play utilities otherwise win).
 
-Runs locally with a single command
-Include a good README.md with setup and run instructions
-Seed the database with 10–14 realistic example sub-projects that have varied costs, outcomes, and some interesting dependencies so all three modes are immediately useful
-Initialize all Elo ratings at 1500
+## Friend launch
 
-# Deliverables
+- `./run.sh` and `./install.sh` (alias): Python 3.11+, venv, pip,
+  `uvicorn` on 127.0.0.1:8000, **no `--reload`**, open default browser.
+- `./scripts/pack.sh` → `dist/stackrank-YYYYMMDD.zip` without `.venv`, live
+  `data/*.db`, `.git`, `handoff.md`, `implementation-summary.md`.
+- First launch with empty `data/` seeds 12 example projects.
+- Runtime: `requirements.txt`. Tests: `requirements-dev.txt`. pytest via
+  `.venv/bin/python -m pytest`. Temp DB only; never touch live `data/stackrank.db`.
 
-Working web application
-Clear project structure
-README
-Seed data
+# Tech stack (fixed)
 
-Start by designing the data model (including Elo fields and any match history if useful), then the algorithms (knapsack + Elo update), then backend + storage, then the interactive UI features.
+| Layer | Choice |
+|---|---|
+| Backend | Python 3.11+ / FastAPI |
+| DB | SQLite, `PRAGMA foreign_keys=ON`, `BEGIN IMMEDIATE` writes |
+| Templates | Jinja2 |
+| Front-end | Server HTML + vendored HTMX 2, Tailwind Play, SortableJS |
+| Static | `static/vendor/` — no CDN at runtime |
+| Auth | None |
+
+`stackrank.main:app`, templates from `templates/`, static at `/static`.
+
+# Target tree
+
+```
+README.md
+LICENSE
+AGENTS.md
+stackrank_prompt.txt
+implementation_plan.md
+requirements.txt
+requirements-dev.txt
+pytest.ini
+run.sh
+install.sh
+.gitignore
+src/stackrank/          # __init__, main, db, currency, elo, optimizer, services, seed
+templates/              # base + pages + _partials/
+static/                 # app.css, app.js, favicon.svg, vendor/
+tests/                  # conftest + unit/api
+scripts/                # pack.sh, optional smoke_tabs.py
+docs/                   # 00–10 design notes
+data/.gitkeep           # db created at runtime
+```
+
+# Non-goals
+
+No React, no Node build, no auth, no live FX, no second SPA, no systemd/launchd
+for the app server.
+
+# How to build
+
+Read implementation_plan.md. Work top to bottom. Each slice has one file and
+one acceptance check. Parent writes the next worker prompt; helpers never
+receive this whole document.

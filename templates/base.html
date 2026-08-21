@@ -1,37 +1,64 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full" data-theme="{{ theme }}">
+<script>
+(function () {
+  var theme = document.documentElement.getAttribute("data-theme") || "system";
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  function apply() {
+    var dark = theme === "dark" || (theme === "system" && mq.matches);
+    document.documentElement.classList.toggle("dark", dark);
+   }
+  apply();
+  if (theme === "system") mq.addEventListener("change", apply);
+})();
+</script>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="{{ url_for('static', path='favicon.svg') }}" type="image/svg+xml" />
   <title>{% block title %}{% if project_name %}{{ project_name }} — {% endif %}Project Stack Ranker{% endblock %}</title>
-  <script defer src="https://cdn.tailwindcss.com"></script>
+  <script src="{{ url_for('static', path='vendor/tailwindcss.js') }}"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: { extend: { colors: {
         brand: { DEFAULT: '#4f46e5', dark: '#3730a3' },
       } } }
     };
   </script>
-  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
-  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}" />
+  <script src="{{ url_for('static', path='vendor/htmx.min.js') }}"></script>
+  <script>
+    htmx.config.responseHandling = [
+      {code: "204", swap: false},
+      {code: "[23]..", swap: true},
+      {code: "409", swap: true},
+      {code: "422", swap: true},
+      {code: "503", swap: true},
+      {code: "[45]..", swap: false, error: true},
+      {code: "...", swap: true}
+    ];
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v=pool-frames" />
+  {% block extra_head %}{% endblock %}
 </head>
 <body class="min-h-full bg-slate-50 text-slate-900 antialiased">
-  <header class="border-b border-slate-200 bg-indigo-50">
+  <header class="site-top border-b border-slate-200 bg-indigo-50">
     <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
       {% include "_partials/header_title.html" %}
       <nav class="flex flex-wrap items-center gap-1 text-sm font-medium">
-        {% for slug, label in [('projects','Projects'),('optimize','Optimize'),('pool','Pool'),('contest','Contest')] %}
+        {% for slug, label in [('projects','Projects'),('optimize','Optimize'),('pool','Pool'),('contest','Contest'),('export.html','Export')] %}
           <a href="/{{ slug }}"
-             class="{% if page == slug %}border-b-2 border-brand text-brand-dark nav-active{% else %}text-slate-500 hover:text-slate-800{% endif %} px-3 py-1.5">
+             class="{% if page == slug or (slug == 'export.html' and page == 'export') %}nav-active rounded bg-indigo-600 text-white{% else %}text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-100{% endif %} px-3 py-1.5">
             {{ label }}
           </a>
         {% endfor %}
-        <a href="/export.md" class="text-slate-500 hover:text-slate-800 px-3 py-1.5">Export</a>
       </nav>
+      {% include "_partials/theme_switch.html" %}
     </div>
     <div class="mx-auto max-w-6xl px-4 pb-2 text-xs text-slate-500">
       Budget: <span id="header-budget" class="font-mono text-slate-700">{{ budget_triple or '' }}</span>
     </div>
+    {% block sticky_sub %}{% endblock %}
   </header>
 
   <main class="mx-auto max-w-6xl px-4 py-6">
@@ -39,7 +66,7 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+  <script src="{{ url_for('static', path='vendor/Sortable.min.js') }}"></script>
   <script src="{{ url_for('static', path='app.js') }}"></script>
 </body>
 </html>

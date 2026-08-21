@@ -188,7 +188,7 @@ def test_export_markdown_lists_seed_projects(client):
     assert "text/markdown" in resp.headers.get("content-type", "")
     assert "Identity" in resp.text and "SSO" in resp.text
     assert "Budget:" in resp.text
-    assert "### " in resp.text
+    assert "| Project |" in resp.text
     assert "attachment" in (resp.headers.get("content-disposition") or "")
 
 
@@ -198,3 +198,37 @@ def test_export_markdown_uses_renamed_title(client):
     assert resp.status_code == 200
     assert resp.text.startswith("# Acme Launch")
     assert "acme-launch.md" in (resp.headers.get("content-disposition") or "")
+
+
+def test_budget_shrink_flash_and_pool_oob(client):
+    import re
+    for name, cost, outcome in (("EjectMe", "100", "10"), ("KeepMe", "100", "90")):
+        client.post(
+             "/projects",
+            data={
+                 "name": name,
+                 "description": "",
+                 "cost": cost,
+                 "cost_currency": "SGD",
+                 "outcome": outcome,
+             },
+            follow_redirects=False,
+         )
+    page = client.get("/projects")
+    ids = {}
+    for name in ("EjectMe", "KeepMe"):
+        m = re.search(rf'id="project-(\d+)"[\s\S]*?<h2[^>]*>{name}</h2>', page.text)
+        assert m, name
+        ids[name] = m.group(1)
+    client.post(f"/pool/add/{ids['EjectMe']}")
+    client.post(f"/pool/add/{ids['KeepMe']}")
+    resp = client.post(
+         "/settings/budget",
+        data={"amount": "150", "currency": "SGD"},
+        follow_redirects=False,
+     )
+    assert resp.status_code == 200
+    assert 'id="header-budget"' in resp.text
+    assert "EjectMe" in resp.text
+    assert 'id="pool-board"' in resp.text
+    assert "hx-swap-oob" in resp.text

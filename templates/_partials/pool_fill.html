@@ -1,0 +1,32 @@
+<figure id="pool-fill"{% if pool_fill_oob %} hx-swap-oob="true"{% endif %}
+        class="pool-fill{% if totals.over_budget %} pool-fill--over{% endif %}"
+        style="--pool-fill: {{ totals.fill_pct|default(0) }}%; --pool-fill-ratio: {{ '%.4f'|format((totals.fill_pct|default(0)|int) / 100) }};"
+        data-fill="{{ totals.fill_pct|default(0) }}"
+        aria-label="Success pool is {{ totals.fill_pct|default(0) }} percent of budget">
+  <div class="pool-fill-deck">
+    <div class="pool-fill-frame">
+      <div class="pool-fill-basin">
+        <div class="pool-fill-water">
+          <div class="pool-fill-wave-clip">
+            <div class="pool-fill-wave pool-fill-wave-a"></div>
+            <div class="pool-fill-wave pool-fill-wave-b"></div>
+            <div class="pool-fill-wave pool-fill-wave-c"></div>
+          </div>
+          <span class="pool-fill-duck" aria-hidden="true">
+            <svg viewBox="0 0 36 20" width="72" height="40">
+              <ellipse cx="14" cy="13" rx="11" ry="6.5" fill="#f5c518"/>
+              <ellipse cx="11" cy="13.5" rx="5" ry="3.2" fill="#eab308"/>
+              <circle cx="24" cy="8" r="5.5" fill="#f5c518"/>
+              <polygon points="29,8 36,10.5 29,13" fill="#f97316"/>
+              <circle cx="26" cy="6.5" r="1.1" fill="#1e293b"/>
+            </svg>
+          </span>
+          <div class="pool-fill-wave-clip pool-fill-wave-clip-front">
+            <div class="pool-fill-wave pool-fill-wave-d"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <figcaption class="pool-fill-caption">{{ '%d%% full'|format(totals.fill_pct|default(0)|int) }}</figcaption>
+</figure>

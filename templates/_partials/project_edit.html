@@ -10,14 +10,18 @@
         <input type="text" name="description" value="{{ description }}"
                class="mt-0.5 w-full rounded border px-2 py-1.5">
       </label>
+      <label class="text-sm md:col-span-2">Notes
+        <textarea name="notes" maxlength="500" rows="2"
+                class="mt-0.5 w-full rounded border px-2 py-1.5">{{ notes }}</textarea>
+      </label>
       <label class="text-sm">Cost
-        <input type="number" step="0.01" min="0.01" name="cost" required value="{{ cost_sgd }}"
+        <input type="number" step="0.01" min="0.01" name="cost" required value="{{ cost_amount }}"
                class="mt-0.5 w-full rounded border px-2 py-1.5">
       </label>
       <label class="text-sm">Currency
         <select name="cost_currency" class="mt-0.5 w-full rounded border px-2 py-1.5">
           {% for c in currencies %}
-            <option value="{{ c }}" {{ "selected" if c == budget_currency else "" }}>{{ symbols[c] }} {{ c }}</option>
+            <option value="{{ c }}" {{ "selected" if c == cost_currency else "" }}>{{ symbols[c] }} {{ c }}</option>
           {% endfor %}
         </select>
       </label>

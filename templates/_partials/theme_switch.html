@@ -1,0 +1,13 @@
+<nav id="theme-switch" class="flex items-center gap-1 text-xs" aria-label="Theme">
+{% for value, label in [('system','System'),('light','Light'),('dark','Dark')] %}
+  <form method="post" action="/settings/theme" class="inline">
+    <input type="hidden" name="theme" value="{{ value }}" />
+    <input type="hidden" name="next" value="{{ request.url.path }}" />
+    <button type="submit"
+     class="{% if theme == value %}bg-indigo-600 text-white{% else %}text-slate-500 hover:text-slate-800{% endif %} rounded px-2 py-0.5 font-medium"
+     {% if theme == value %}aria-current="true"{% endif %}>
+     {{ label }}
+   </button>
+  </form>
+{% endfor %}
+</nav>

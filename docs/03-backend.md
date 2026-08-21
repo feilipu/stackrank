@@ -17,7 +17,8 @@ HTML pages use Jinja. Mutations that the UI follows with HTMX return HTML fragme
 | `/optimize` | `optimize.html` | metric picker + results |
 | `/pool` | `pool.html` | two columns + totals |
 | `/contest` | `contest.html` | two cards + leaderboard |
-| `/export.md` (alias `/export`) | markdown attachment | documented overall project + sub-projects |
+| `/export.html` | coloured HTML report (inline) | green = in pool, amber = excluded |
+| `/export.md` (alias `/export`) | markdown attachment | same grouping; HTML/CSS colour for previewers |
 
 Shared chrome in `base.html`: editable overall project name, nav tabs, **Export** link, budget chip (3 currencies), flash/error region (`#flash`).
 
@@ -33,6 +34,7 @@ Shared chrome in `base.html`: editable overall project name, nav tabs, **Export*
 | POST | `/settings/budget` | amount, currency | refresh budget card |
 | POST | `/settings/rates` | usd_per_sgd, myr_per_sgd | refresh conversions |
 | POST | `/settings/name` | `name` (1–80 chars) | persist overall title; HTMX returns `#header-title` fragment, else 303 `/projects` |
+| GET | `/export.html` | | `text/html` inline; filename from slugged `project_name` |
 | GET | `/export.md` | | `text/markdown` attachment; filename from slugged `project_name` |
 
 Cost may be entered in SGD/USD/MYR; convert to SGD before store.
@@ -45,7 +47,9 @@ Validation errors: HTTP 422 with an HTML `_partials/errors.html` fragment (`HX-R
 |---|---|---|
 | GET | `/optimize` | last-run stored in memory only (module global is fine; also recompute on GET if `?autorun=1`) |
 | POST | `/optimize/run` | form `metric=outcome\|elo\|blend` — persist metric on settings, return results fragment |
-| POST | `/optimize/apply` | write selected ids into pool (see algorithms) |
+| POST | `/optimize/apply` | write selected ids into pool, then land on `/pool` (303 or `HX-Redirect`) |
+
+Last optimize result should be persisted (not only the `LAST_OPTIMIZE` module global) so GET `/optimize` still shows it after process restart.
 
 ## Pool routes
 
@@ -77,7 +81,7 @@ Return `_partials/contest_board.html`.
 
 ## Markdown export
 
-`services.export_markdown(conn)` builds a UTF-8 document:
+`services.export_markdown(conn)` and `services.export_html(conn)` share the same grouping and Pool-board colours (green `#ecfdf5` / `#047857` = in pool, amber `#fff7ed` / `#c2410c` = excluded).
 
 ```
 # {project_name}
@@ -85,18 +89,18 @@ Return `_partials/contest_board.html`.
 Budget: S$…  ·  US$…  ·  RM…
 Pool: N of M in pool · remaining S$…  ·  US$…  ·  RM…
 
-## Sub-projects
+Colour key + count table
 
-### {name}
-- Status: In pool (pinned) | In pool | Not in pool
-- Cost: {triple}
-- Outcome: …
-- Elo: … (W–L, matches)
-- Depends on: … or —
-- Description: … or —
+## In-Budget Success Pool
+(green banner, name index, then cards in pool order — or “_None selected._”)
+- Status: In pool (pinned) | In pool
+
+## Excluded
+(amber banner, name index, then cards in `list_projects` order — or “_None excluded._”)
+- Status: Excluded
 ```
 
-Sub-projects follow `list_projects` order (name, case-insensitive). Do not HTML-escape the body.
+Groups are exclusive: a sub-project appears in only one section. Markdown embeds `<style>` plus inline-styled badges/cards so VS Code / Typora / Obsidian previews show colour. User text inside HTML cards is escaped. Nav **Export** opens `/export.html` (inline); that page links to `/export.md`.
 
 ## Error policy
 

@@ -37,8 +37,9 @@ Provide `tests/conftest.py` with:
 1. Adding a project whose cost exceeds remaining ejects the lowest unpinned metric project.
 2. Pinned project is not ejected; if nothing else can go, add is rejected.
 3. Missing dependency blocks add.
-4. Removing a dependency while a dependent is still pooled is blocked.
-5. Reorder persists positions.
+4. Budget shrink ejects lowest unpinned; pinned over-budget stays and reports over_budget; ejecting a dependency also ejects its dependent.
+5. Removing a dependency while a dependent is still pooled is blocked.
+6. Reorder persists positions.
 
 ## Service — projects
 
@@ -56,18 +57,20 @@ Provide `tests/conftest.py` with:
 5. `POST /pool/add/{id}` returns both columns.
 6. `POST /settings/name` persists the overall title; empty name is 422.
 7. `GET /export.md` is 200 `text/markdown`, contains a seeded name and `Budget:`.
+8. `GET /export.html` is 200 `text/html` and uses green (`#ecfdf5`) vs amber (`#fff7ed`).
+9. `GET /pool` includes `#pool-fill` with `data-fill` (`tests/test_pool_fill.py`).
 
 ## Manual / README smoke
 
-README must include:
+README must include a Mac friend path (`./run.sh`) and the equivalent:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn stackrank.main:app --reload --app-dir src
+python -m uvicorn stackrank.main:app --app-dir src --host 127.0.0.1 --port 8000
 ```
 
 Open `http://127.0.0.1:8000`. Seed data visible. All four tabs load.
 
-No Playwright required for CI. Optional later.
+Runtime install is `requirements.txt`. Tests need `requirements-dev.txt` (pytest, httpx, playwright). No Playwright required to run the app. Optional later.

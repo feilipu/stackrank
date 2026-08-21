@@ -26,7 +26,7 @@ On first boot insert the singleton with `budget_sgd = 250000`, `budget_currency 
 
 Existing databases are migrated in `apply_schema`: if `project_name` is missing, `ALTER TABLE settings ADD COLUMN project_name TEXT NOT NULL DEFAULT 'Untitled project'`.
 
-**Average conversion rate.** The “average” is the configured pair of rates, shown together so the user can see SGD, USD, and MYR at once. Editing either rate updates every displayed conversion immediately. There is no live FX API.
+**Average conversion rate.** The “average” is the configured pair of rates, shown together so the user can see SGD, USD, and MYR at once. Editing either rate recomputes every project's `cost_sgd` from its stored `cost_amount`/`cost_currency` and updates displayed conversions immediately. There is no live FX API. The edit form shows the entered amount and currency, not a reverse conversion from SGD.
 
 When the user sets the budget in USD or MYR, persist `budget_currency` and convert into `budget_sgd`:
 
@@ -42,7 +42,9 @@ budget_sgd = amount_myr / myr_per_sgd
 | id | INTEGER PK AUTOINCREMENT | |
 | name | TEXT NOT NULL UNIQUE | trimmed, 1–80 chars |
 | description | TEXT | optional, may be empty |
-| cost_sgd | REAL NOT NULL | must be > 0 |
+| cost_sgd | REAL NOT NULL | must be > 0; derived from `cost_amount` at current rates |
+| cost_amount | REAL NOT NULL | the value the user typed |
+| cost_currency | TEXT NOT NULL | `SGD` / `USD` / `MYR` — the currency of `cost_amount` |
 | outcome | REAL NOT NULL | must be > 0 |
 | elo_rating | REAL NOT NULL | default 1500 |
 | matches_played | INTEGER NOT NULL | default 0; increments on win or loss, not skip |

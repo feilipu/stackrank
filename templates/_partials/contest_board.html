@@ -16,6 +16,12 @@
         <input type="hidden" name="confirm" value="yes">
         <button type="submit" class="rounded border border-red-300 px-3 py-1 text-sm text-red-700">Reset Elo to 1500</button>
       </form>
+      {% if can_undo %}
+        <form method="post" action="/contest/undo" hx-post="/contest/undo" hx-target="#contest-board" hx-swap="outerHTML">
+          <button type="submit" class="rounded border px-3 py-1 text-sm">Undo</button>
+        </form>
+      {% endif %}
+
     </div>
   </div>
 
@@ -23,11 +29,24 @@
     <div class="h-full bg-indigo-600" style="width: {{ progress.percent }}%"></div>
   </div>
 
+  {% if last_match %}
+  <p class="mb-3 text-center text-sm text-slate-600">
+   Last: {{ last_match.left_name }} vs {{ last_match.right_name }} —
+    {% if last_match.skipped %}Skipped
+    {% else %}{{ last_match.winner_name }} won
+      ({{ last_match.left_name }} {{ last_match.left_delta }} · {{ last_match.right_name }} {{ last_match.right_delta }})
+    {% endif %}
+  </p>
+  {% endif %}
+
   {% if active and left and right %}
     <div class="grid gap-4 md:grid-cols-2">
       <article class="rounded-md border bg-white p-5 shadow-sm">
         <h3 class="text-xl font-semibold">{{ left.name }}</h3>
         <p class="mt-1 text-sm text-slate-600">{{ left.description or "—" }}</p>
+        {% if left.notes %}
+        <p class="mt-1 text-sm text-slate-500">{{ left.notes }}</p>
+        {% endif %}
         <p class="mt-3 font-mono text-sm">{{ left.cost.text }}</p>
         <p class="text-sm">Outcome {{ left.outcome }} · Elo {{ "%.1f"|format(left.elo_rating) }} · {{ left.wins }}–{{ left.losses }}</p>
         <form class="mt-4" method="post" action="/contest/choose"
@@ -39,6 +58,9 @@
       <article class="rounded-md border bg-white p-5 shadow-sm">
         <h3 class="text-xl font-semibold">{{ right.name }}</h3>
         <p class="mt-1 text-sm text-slate-600">{{ right.description or "—" }}</p>
+        {% if right.notes %}
+        <p class="mt-1 text-sm text-slate-500">{{ right.notes }}</p>
+        {% endif %}
         <p class="mt-3 font-mono text-sm">{{ right.cost.text }}</p>
         <p class="text-sm">Outcome {{ right.outcome }} · Elo {{ "%.1f"|format(right.elo_rating) }} · {{ right.wins }}–{{ right.losses }}</p>
         <form class="mt-4" method="post" action="/contest/choose"
@@ -53,9 +75,12 @@
       <button type="submit" class="text-sm text-slate-500 underline">Skip this pair</button>
     </form>
   {% else %}
-    <p class="rounded-md border bg-white p-6 text-center text-sm text-slate-500">
-      Start a contest to compare two projects at a time.
-    </p>
+    <div class="empty-state rounded-md border bg-white p-6">
+      {% include "_partials/empty_art.html" %}
+      <p class="text-center text-sm text-slate-500">
+        Start a contest to compare two projects at a time.
+      </p>
+    </div>
   {% endif %}
 
   <table class="mt-6 w-full rounded-md border bg-white text-left text-sm shadow-sm">

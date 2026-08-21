@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Repo-local default so a zip + ./run.sh just works. A later Mac .app should
+# store this under ~/Library/Application Support/StackRanker/ instead.
 DEFAULT_DB = ROOT / "data" / "stackrank.db"
 
 SCHEMA = """
@@ -26,7 +28,8 @@ CREATE TABLE IF NOT EXISTS settings (
     contest_left_id INTEGER,
     contest_right_id INTEGER,
     contest_shown INTEGER NOT NULL,
-    contest_decided INTEGER NOT NULL
+    contest_decided INTEGER NOT NULL,
+    last_optimize_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -34,6 +37,8 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     cost_sgd REAL NOT NULL,
+    cost_amount REAL NOT NULL,
+    cost_currency TEXT NOT NULL DEFAULT 'SGD',
     outcome REAL NOT NULL,
     elo_rating REAL NOT NULL DEFAULT 1500,
     matches_played INTEGER NOT NULL DEFAULT 0,
@@ -102,6 +107,32 @@ def apply_schema(conn: sqlite3.Connection) -> None:
             "ALTER TABLE settings ADD COLUMN project_name "
             "TEXT NOT NULL DEFAULT 'Untitled project'"
         )
+    if "last_optimize_json" not in cols:
+        conn.execute("ALTER TABLE settings ADD COLUMN last_optimize_json TEXT")
+    proj_cols = {row[1] for row in conn.execute("PRAGMA table_info(projects)")}
+    if "notes" not in proj_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    if "cost_currency" not in proj_cols:
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN cost_currency "
+            "TEXT NOT NULL DEFAULT 'SGD'"
+        )
+    if "cost_amount" not in proj_cols:
+        conn.execute(
+            "ALTER TABLE projects ADD COLUMN cost_amount REAL NOT NULL DEFAULT 0"
+        )
+        conn.execute("UPDATE projects SET cost_amount = cost_sgd")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(settings)")}
+    if "last_cost_currency" not in cols:
+        conn.execute(
+             "ALTER TABLE settings ADD COLUMN last_cost_currency "
+             "TEXT NOT NULL DEFAULT 'SGD'"
+         )
+    if "theme" not in cols:
+        conn.execute(
+             "ALTER TABLE settings ADD COLUMN theme "
+             "TEXT NOT NULL DEFAULT 'system'"
+         )
     row = conn.execute("SELECT id FROM settings WHERE id = 1").fetchone()
     if row is None:
         conn.execute(

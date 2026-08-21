@@ -1,0 +1,5 @@
+{% if flash_message %}
+<div id="flash" class="mb-4 rounded-md px-4 py-2 text-sm font-medium {{ flash_class }}" hx-swap-oob="true">{{ flash_message }}</div>
+{% else %}
+<div id="flash" hx-swap-oob="true"></div>
+{% endif %}

@@ -1,0 +1,34 @@
+{% if row.dependencies %}
+{% set shown = row.dependencies[:5] %}
+{% set extra = row.dependencies|length - shown|length %}
+{% set ns = namespace(left_w=176, right_w=192, extra_h=0) %}
+{% for d in shown %}
+  {% set need = d|length * 6 + 16 %}
+  {% if need > ns.left_w %}{% set ns.left_w = need %}{% endif %}
+{% endfor %}
+{% set need_r = row.name|length * 6 + 16 %}
+{% if need_r > ns.right_w %}{% set ns.right_w = need_r %}{% endif %}
+{% if extra > 0 %}{% set ns.extra_h = 12 %}{% endif %}
+{% set gap = 28 %}
+{% set left_x = 2 %}
+{% set right_x = left_x + ns.left_w + gap %}
+{% set vb_w = right_x + ns.right_w + 4 %}
+{% set row_h = 14 %}
+{% set stack_h = 2 + shown|length * row_h + ns.extra_h %}
+{% set vb_h = [stack_h, 40]|max %}
+{% set right_y = ((vb_h - 18) / 2)|int %}
+<svg class="dep-sketch mt-2" viewBox="0 0 {{ vb_w }} {{ vb_h }}" role="img" aria-label="Dependencies">
+   {% for d in shown %}
+   <g>
+     <rect x="{{ left_x }}" y="{{ 2 + loop.index0 * row_h }}" width="{{ ns.left_w }}" height="10" rx="2" fill="#e2e8f0" stroke="#94a3b8"/>
+     <text x="{{ left_x + ns.left_w / 2 }}" y="{{ 10 + loop.index0 * row_h }}" text-anchor="middle" font-size="7" fill="#334155">{{ d }}</text>
+     <line x1="{{ left_x + ns.left_w }}" y1="{{ 7 + loop.index0 * row_h }}" x2="{{ right_x }}" y2="{{ right_y + 9 }}" stroke="#94a3b8"/>
+   </g>
+   {% endfor %}
+   {% if extra > 0 %}
+   <text x="{{ left_x + ns.left_w / 2 }}" y="{{ vb_h - 2 }}" text-anchor="middle" font-size="7" fill="#64748b">+{{ extra }}</text>
+   {% endif %}
+   <rect x="{{ right_x }}" y="{{ right_y }}" width="{{ ns.right_w }}" height="18" rx="3" fill="#e0e7ff" stroke="#4338ca"/>
+   <text x="{{ right_x + ns.right_w / 2 }}" y="{{ right_y + 12 }}" text-anchor="middle" font-size="8" fill="#312e81">{{ row.name }}</text>
+</svg>
+{% endif %}

@@ -9,6 +9,7 @@ from stackrank.services import (
     add_to_pool,
     create_project,
     delete_project,
+    get_project,
     pool_rows,
     reorder_pool,
     remove_from_pool,
@@ -16,6 +17,7 @@ from stackrank.services import (
     toggle_pin,
     update_budget,
     update_project,
+    update_rates,
 )
 
 
@@ -212,3 +214,127 @@ def test_delete_project_removes_from_pool(conn):
     assert row is None
     post_ids = {int(r["id"]) for r in pool_rows(conn)}
     assert p not in post_ids
+
+
+def test_budget_shrink_ejects_lowest_unpinned_outcome(conn):
+    set_pool_metric(conn, "outcome")
+    low = new_project(conn, "Low", cost=100, outcome=10.0)
+    high = new_project(conn, "High", cost=100, outcome=90.0)
+    add_to_pool(conn, low)
+    add_to_pool(conn, high)
+    result = update_budget(conn, 150, "SGD")
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert high in ids and low not in ids
+    assert result["over_budget"] is False
+    assert low in result["ejected_ids"]
+
+
+def test_budget_shrink_pinned_still_fits(conn):
+    set_pool_metric(conn, "outcome")
+    update_budget(conn, 1000, "SGD")
+    p = new_project(conn, "PinnedFit", cost=3, outcome=60.0)
+    add_to_pool(conn, p)
+    toggle_pin(conn, p)
+    result = update_budget(conn, 5, "SGD")
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert p in ids
+    assert result["over_budget"] is False
+
+
+def test_budget_shrink_pinned_exceeds_budget(conn):
+    set_pool_metric(conn, "outcome")
+    update_budget(conn, 1000, "SGD")
+    p = new_project(conn, "PinnedOver", cost=100, outcome=60.0)
+    add_to_pool(conn, p)
+    toggle_pin(conn, p)
+    result = update_budget(conn, 40, "SGD")
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert p in ids
+    assert result["over_budget"] is True
+    assert result["budget_sgd"] == 40
+
+
+def test_budget_shrink_ejects_dependency_and_dependent(conn):
+    set_pool_metric(conn, "outcome")
+    update_budget(conn, 1000, "SGD")
+    b = new_project(conn, "DepB", cost=100, outcome=10.0)
+    a = new_project(conn, "DepA", cost=100, outcome=90.0, depends_on=[b])
+    add_to_pool(conn, b)
+    add_to_pool(conn, a)
+    result = update_budget(conn, 150, "SGD")
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert a not in ids and b not in ids
+    assert result["over_budget"] is False
+
+
+def test_budget_shrink_cannot_eject_dep_of_pinned(conn):
+    set_pool_metric(conn, "outcome")
+    update_budget(conn, 1000, "SGD")
+    b = new_project(conn, "KeepB", cost=100, outcome=10.0)
+    a = new_project(conn, "PinA", cost=100, outcome=90.0, depends_on=[b])
+    add_to_pool(conn, b)
+    add_to_pool(conn, a)
+    toggle_pin(conn, a)
+    result = update_budget(conn, 50, "SGD")
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert a in ids and b in ids
+    assert result["over_budget"] is True
+
+
+def test_create_persists_entered_cost_and_currency(conn):
+    pid = create_project(
+        conn,
+        name="Usd Quote",
+        description="",
+        cost=74,
+        cost_currency="USD",
+        outcome=10,
+        depends_on=[],
+    )
+    row = get_project(conn, pid)
+    assert float(row["cost_amount"]) == 74
+    assert row["cost_currency"] == "USD"
+    assert abs(float(row["cost_sgd"]) - 100) < 1e-6
+
+
+def test_update_unchanged_cost_keeps_entered_amount(conn):
+    pid = create_project(
+        conn,
+        name="Keep Usd",
+        description="",
+        cost=74,
+        cost_currency="USD",
+        outcome=10,
+        depends_on=[],
+    )
+    update_project(
+        conn,
+        pid,
+        name="Keep Usd",
+        description="",
+        cost=74,
+        cost_currency="USD",
+        outcome=10,
+        depends_on=[],
+    )
+    row = get_project(conn, pid)
+    assert float(row["cost_amount"]) == 74
+    assert row["cost_currency"] == "USD"
+
+
+def test_rate_change_recomputes_cost_sgd_from_entered(conn):
+    pid = create_project(
+        conn,
+        name="Fx Job",
+        description="",
+        cost=74,
+        cost_currency="USD",
+        outcome=10,
+        depends_on=[],
+    )
+    assert abs(float(get_project(conn, pid)["cost_sgd"]) - 100) < 1e-6
+    update_rates(conn, 1.0, 3.45)
+    row = get_project(conn, pid)
+    assert float(row["cost_amount"]) == 74
+    assert row["cost_currency"] == "USD"
+    assert abs(float(row["cost_sgd"]) - 74) < 1e-6

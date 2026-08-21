@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections import defaultdict, deque
 
-from stackrank.currency import format_money, metric_value, to_sgd
+from stackrank.currency import (
+    CURRENCIES,
+    metric_value,
+    to_myr,
+    to_sgd,
+    to_usd,
+)
 from stackrank.elo import (
     DEFAULT_ELO,
     K_FACTOR,
@@ -18,6 +25,20 @@ from stackrank.optimizer import optimize as run_optimize
 from stackrank.seed import utcnow
 
 EPS = 1e-6
+
+
+def budget_fill(cost_sgd: float, budget_sgd: float) -> dict:
+    """Used-budget fraction for the Pool tab fill graphic."""
+    if budget_sgd <= EPS:
+        raw = 0.0
+    else:
+        raw = float(cost_sgd) / float(budget_sgd)
+    clamped = min(1.0, max(0.0, raw))
+    return {
+        "fill_ratio_raw": raw,
+        "fill_ratio": clamped,
+        "fill_pct": int(round(clamped * 100)),
+    }
 
 
 class ServiceError(Exception):
@@ -64,7 +85,7 @@ def names_by_id(conn: sqlite3.Connection) -> dict[int, str]:
     return {int(r["id"]): r["name"] for r in conn.execute("SELECT id, name FROM projects")}
 
 
-def export_filename(conn: sqlite3.Connection) -> str:
+def export_filename(conn: sqlite3.Connection, ext: str = "md") -> str:
     """Safe download name from the overall project title."""
     settings = get_settings(conn)
     try:
@@ -74,11 +95,84 @@ def export_filename(conn: sqlite3.Connection) -> str:
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw).strip("-")
     while "--" in slug:
         slug = slug.replace("--", "-")
-    return f"{slug or 'stackrank'}.md"
+    ext = (ext or "md").lstrip(".") or "md"
+    return f"{slug or 'stackrank'}.{ext}"
 
 
-def export_markdown(conn: sqlite3.Connection) -> str:
-    """Markdown document of the overall project and every sub-project."""
+# Pool board colours (docs/04-frontend.md): green = in, amber = excluded.
+_POOL_FG, _POOL_BG, _POOL_BD = "#047857", "#ecfdf5", "#6ee7b7"
+_EXCL_FG, _EXCL_BG, _EXCL_BD = "#c2410c", "#fff7ed", "#fdba74"
+
+_EXPORT_STYLE = f"""\
+<style>
+/* Colours match the Pool board. Shown by VS Code, Typora, Obsidian, and most HTML-capable Markdown previews. */
+.sr-key-pool, .sr-badge-pool {{ color: {_POOL_FG}; background: {_POOL_BG}; border-color: {_POOL_BD}; }}
+.sr-key-excl, .sr-badge-excl {{ color: {_EXCL_FG}; background: {_EXCL_BG}; border-color: {_EXCL_BD}; }}
+.sr-banner-pool {{ background: {_POOL_BG}; border-left: 6px solid {_POOL_BD}; color: {_POOL_FG}; }}
+.sr-banner-excl {{ background: {_EXCL_BG}; border-left: 6px solid {_EXCL_BD}; color: {_EXCL_FG}; }}
+.sr-badge {{ display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid; font-weight: 600; font-size: 0.85em; }}
+.sr-banner {{ padding: 0.55rem 0.85rem; border-radius: 0.375rem; margin: 0.35rem 0 0.85rem; }}
+.sr-card-pool {{ background: {_POOL_BG}; border: 1px solid {_POOL_BD}; border-left: 6px solid #34d399; }}
+.sr-card-excl {{ background: {_EXCL_BG}; border: 1px solid {_EXCL_BD}; border-left: 6px solid #fb923c; }}
+.sr-card {{ padding: 10px 14px; border-radius: 6px; margin: 0 0 1rem; }}
+.sr-card p {{ margin: 0.25em 0; }}
+</style>
+"""
+
+
+def _md_badge(label: str, kind: str) -> str:
+    cls = "sr-badge sr-badge-pool" if kind == "pool" else "sr-badge sr-badge-excl"
+    fg, bg, bd = (_POOL_FG, _POOL_BG, _POOL_BD) if kind == "pool" else (_EXCL_FG, _EXCL_BG, _EXCL_BD)
+    return (
+        f'<span class="{cls}" style="display:inline-block;color:{fg};background:{bg};'
+        f'border:1px solid {bd};padding:1px 8px;border-radius:999px;'
+        f'font-weight:600;font-size:0.85em">{label}</span>'
+    )
+
+
+def _md_banner(kind: str, html: str) -> str:
+    cls = "sr-banner sr-banner-pool" if kind == "pool" else "sr-banner sr-banner-excl"
+    fg, bg, bd = (_POOL_FG, _POOL_BG, _POOL_BD) if kind == "pool" else (_EXCL_FG, _EXCL_BG, _EXCL_BD)
+    return (
+        f'<p class="{cls}" style="background:{bg};border-left:6px solid {bd};'
+        f'color:{fg};padding:0.55rem 0.85rem;border-radius:0.375rem">{html}</p>'
+    )
+
+
+def _md_card_open(kind: str) -> str:
+    cls = "sr-card sr-card-pool" if kind == "pool" else "sr-card sr-card-excl"
+    bg, bd, accent = (
+        (_POOL_BG, _POOL_BD, "#34d399") if kind == "pool" else (_EXCL_BG, _EXCL_BD, "#fb923c")
+    )
+    return (
+        f'<div class="{cls}" style="background:{bg};border:1px solid {bd};'
+        f'border-left:6px solid {accent};padding:10px 14px;border-radius:6px;margin:0 0 1rem">'
+    )
+
+
+def _md_card_close() -> str:
+    return "</div>"
+
+
+def _md_html_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _norm_export_ccy(ccy: str | None) -> str:
+    c = (ccy or "SGD").strip().upper()
+    return c if c in CURRENCIES else "SGD"
+
+
+def export_currency(ccy: str | None) -> str:
+    return _norm_export_ccy(ccy)
+
+
+def _export_snapshot(conn: sqlite3.Connection, currency: str | None = "SGD") -> dict:
     settings = get_settings(conn)
     try:
         project_name = (settings["project_name"] or "").strip() or "Untitled project"
@@ -89,50 +183,383 @@ def export_markdown(conn: sqlite3.Connection) -> str:
     all_projects = list_projects(conn)
     pooled = list(pool_rows(conn))
     pool_ids = {int(r["id"]) for r in pooled}
-    pinned_ids = {int(r["id"]) for r in pooled if int(r["pinned"])}
-    remaining = max(0.0, budget_sgd - sum(float(r["cost_sgd"]) for r in pooled))
+    spent_sgd = sum(float(r["cost_sgd"]) for r in pooled)
+    remaining = max(0.0, budget_sgd - spent_sgd)
     names = names_by_id(conn)
     deps = dependencies_map(conn)
+    excluded = [p for p in all_projects if int(p["id"]) not in pool_ids]
+    return {
+        "project_name": project_name,
+        "usd": usd,
+        "myr": myr,
+        "currency": _norm_export_ccy(currency),
+        "budget_sgd": budget_sgd,
+        "spent_sgd": spent_sgd,
+        "all_projects": all_projects,
+        "pooled": pooled,
+        "pool_ids": pool_ids,
+        "remaining": remaining,
+        "names": names,
+        "deps": deps,
+        "excluded": excluded,
+    }
 
+
+def _one_line(text) -> str:
+    s = " ".join(str(text or "").split())
+    return s or "—"
+
+
+def _cost_cell(sgd, currency, usd, myr) -> str:
+    c = _norm_export_ccy(currency)
+    amount = float(sgd)
+    if c == "USD":
+        return f"US${to_usd(amount, usd):,.0f}"
+    if c == "MYR":
+        return f"RM{to_myr(amount, myr):,.0f}"
+    return f"S${amount:,.0f}"
+
+
+def _cost_of(snap: dict, sgd) -> str:
+    return _cost_cell(sgd, snap["currency"], snap["usd"], snap["myr"])
+
+
+def _dep_cell(pid: int, names: dict, deps: dict) -> str:
+    items = [names.get(d, "?") for d in deps.get(int(pid), [])]
+    return ", ".join(items) if items else "—"
+
+
+def _notes_of(row) -> str:
+    raw = (row["notes"] if "notes" in row.keys() else "") or ""
+    return _one_line(raw)
+
+
+def _md_cell(text) -> str:
+    return _one_line(text).replace("|", "\\|")
+
+
+def _md_table(headers: list[str], rows: list[list[str]]) -> list[str]:
     lines = [
-        f"# {project_name}",
-        "",
-        f"Budget: {format_money(budget_sgd, usd, myr)}",
-        (
-            f"Pool: {len(pool_ids)} of {len(all_projects)} in pool · "
-            f"remaining {format_money(remaining, usd, myr)}"
-        ),
-        "",
-        "## Sub-projects",
-        "",
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
     ]
-    for row in all_projects:
-        pid = int(row["id"])
-        if pid in pinned_ids:
-            status = "In pool (pinned)"
-        elif pid in pool_ids:
-            status = "In pool"
-        else:
-            status = "Not in pool"
-        dep_names = [names.get(d, "?") for d in deps.get(pid, [])]
-        desc = (row["description"] or "").strip() or "—"
-        lines.extend(
+    for row in rows:
+        lines.append("| " + " | ".join(_md_cell(c) for c in row) + " |")
+    return lines
+
+
+def _pool_sheet_rows(snap: dict) -> list[list[str]]:
+    names, deps = snap["names"], snap["deps"]
+    rows = []
+    for i, p_row in enumerate(snap["pooled"], start=1):
+        pid = int(p_row["id"])
+        pin = " (pinned)" if int(p_row["pinned"]) else ""
+        rows.append(
             [
-                f"### {row['name']}",
-                f"- Status: {status}",
-                f"- Cost: {format_money(float(row['cost_sgd']), usd, myr)}",
-                f"- Outcome: {row['outcome']}",
-                (
-                    f"- Elo: {round(float(row['elo_rating']))} "
-                    f"({int(row['wins'])}–{int(row['losses'])}, "
-                    f"{int(row['matches_played'])} matches)"
-                ),
-                f"- Depends on: {', '.join(dep_names) if dep_names else '—'}",
-                f"- Description: {desc}",
-                "",
+                str(i),
+                f"{names.get(pid, '?')}{pin}",
+                _cost_of(snap, p_row["cost_sgd"]),
+                p_row["outcome"],
+                round(float(p_row["elo_rating"])),
+                _dep_cell(pid, names, deps),
+                _notes_of(p_row),
             ]
         )
+    return rows
+
+
+def _excl_sheet_rows(snap: dict) -> list[list[str]]:
+    names, deps = snap["names"], snap["deps"]
+    rows = []
+    for i, row in enumerate(snap["excluded"], start=1):
+        pid = int(row["id"])
+        rows.append(
+            [
+                str(i),
+                row["name"],
+                _cost_of(snap, row["cost_sgd"]),
+                row["outcome"],
+                round(float(row["elo_rating"])),
+                _dep_cell(pid, names, deps),
+                _notes_of(row),
+            ]
+        )
+    return rows
+
+
+def _contractor_sheet_rows(snap: dict) -> list[list[str]]:
+    names, deps = snap["names"], snap["deps"]
+    rows = []
+    for i, p_row in enumerate(snap["pooled"], start=1):
+        pid = int(p_row["id"])
+        pin = " (pinned)" if int(p_row["pinned"]) else ""
+        rows.append(
+            [
+                str(i),
+                f"{names.get(pid, '?')}{pin}",
+                _one_line(p_row["description"]),
+                _cost_of(snap, p_row["cost_sgd"]),
+                _dep_cell(pid, names, deps),
+                _notes_of(p_row),
+            ]
+        )
+    return rows
+
+
+def export_markdown(conn: sqlite3.Connection, currency: str | None = "SGD") -> str:
+    """Compact markdown: one table row per sub-project."""
+    snap = _export_snapshot(conn, currency)
+    headers = ["#", "Project", "Cost", "Outcome", "Elo", "Depends on", "Notes"]
+    pool_rows_md = _pool_sheet_rows(snap)
+    excl_rows_md = _excl_sheet_rows(snap)
+
+    lines = [
+        f"# {snap['project_name']}",
+        "",
+        _EXPORT_STYLE.rstrip(),
+        "",
+        f"Budget: {_cost_of(snap, snap['budget_sgd'])}",
+        (
+            f"Pool: {len(snap['pool_ids'])} of {len(snap['all_projects'])} in pool · "
+            f"remaining {_cost_of(snap, snap['remaining'])}"
+        ),
+        "",
+        (
+            "**Colour key:** "
+            f"{_md_badge('In pool', 'pool')} selected under budget · "
+            f"{_md_badge('Excluded', 'excl')} not in the success pool"
+        ),
+        "",
+        "| Group | Items |",
+        "| --- | ---: |",
+        f"| {_md_badge('In-Budget Success Pool', 'pool')} | {len(snap['pooled'])} |",
+        f"| {_md_badge('Excluded', 'excl')} | {len(snap['excluded'])} |",
+        "",
+        "## In-Budget Success Pool",
+        "",
+    ]
+    if pool_rows_md:
+        lines.extend(_md_table(headers, pool_rows_md))
+        lines.append("")
+    else:
+        lines.extend(["_None selected._", ""])
+    lines.extend(["## Excluded", ""])
+    if excl_rows_md:
+        lines.extend(_md_table(headers, excl_rows_md))
+        lines.append("")
+    else:
+        lines.extend(["_None excluded._", ""])
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _html_sheet(kind: str, headers: list[str], rows: list[list[str]]) -> str:
+    if not rows:
+        empty = {
+            "pool": "None selected.",
+            "excl": "None excluded.",
+            "accepted": "None accepted.",
+        }.get(kind, "None.")
+        return f'<p class="empty">{empty}</p>'
+    row_class = "excl" if kind == "excl" else "pool"
+    bits = ['<table class="sheet"><thead><tr>']
+    for h in headers:
+        bits.append(f"<th>{_md_html_escape(h)}</th>")
+    bits.append("</tr></thead><tbody>")
+    for cells in rows:
+        bits.append(f'<tr class="row {row_class}">')
+        for i, cell in enumerate(cells):
+            cls = ' class="clip"' if i >= 1 else ""
+            bits.append(f"<td{cls}>{_md_html_escape(str(cell))}</td>")
+        bits.append("</tr>")
+    bits.append("</tbody></table>")
+    return "".join(bits)
+
+
+def _export_toolbar(*, contractor: bool, currency: str = "SGD") -> str:
+    currency = _norm_export_ccy(currency)
+    q = f"?ccy={currency}"
+    action = "/export/contractor.html" if contractor else "/export.html"
+    md = ("/export/contractor.md" if contractor else "/export.md") + q
+    full_cls = ' class="current"' if not contractor else ""
+    con_cls = ' class="current"' if contractor else ""
+    options = []
+    for c in CURRENCIES:
+        sel = " selected" if c == currency else ""
+        options.append(f'<option value="{c}"{sel}>{c}</option>')
+    return (
+        f'<form class="toolbar" method="get" action="{action}">'
+        f'<a href="/export.html{q}"{full_cls}>Full report</a>'
+        " · "
+        f'<a href="/export/contractor.html{q}"{con_cls}>Contractor list</a>'
+        " · "
+        f'<a href="{md}">Download Markdown</a>'
+        ' · <label>Currency <select name="ccy" onchange="this.form.submit()">'
+        f"{''.join(options)}</select></label>"
+        "</form>"
+    )
+
+
+_SHEET_STYLE = f"""
+.export-report {{ max-width: 58rem; font-size: 0.875rem; }}
+.export-report header.report {{ margin-bottom: 0.75rem; }}
+.export-report h1 {{ font-size: 1.35rem; margin: 0 0 0.35rem; }}
+.export-report h2 {{ font-size: 1rem; margin: 0 0 0.35rem; }}
+.export-report .meta {{ color: #334155; margin: 0.15rem 0; }}
+.export-report .toolbar {{ font-size: 0.875rem; margin: 0 0 0.75rem; }}
+.export-report .toolbar a {{ color: #4338ca; }}
+.export-report .toolbar a.current {{ font-weight: 700; }}
+.export-report .toolbar label {{ margin-left: 0.15rem; }}
+.export-report .toolbar select {{ margin-left: 0.25rem; }}
+.export-report .meta.total {{ font-weight: 700; }}
+.export-report .key {{ margin: 0.4rem 0; }}
+.export-report table.summary {{ border-collapse: collapse; margin: 0.4rem 0 0.6rem; }}
+.export-report table.summary th, .export-report table.summary td {{
+  text-align: left; padding: 0.15rem 0.6rem 0.15rem 0;
+}}
+.export-report table.summary th {{
+  color: #64748b; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+}}
+.export-report section {{ margin: 0.65rem 0; }}
+.export-report table.sheet {{
+  width: 100%; border-collapse: collapse; font-size: 0.8rem;
+}}
+.export-report table.sheet th, .export-report table.sheet td {{
+  border-bottom: 1px solid #e2e8f0; padding: 0.18rem 0.35rem;
+  text-align: left; vertical-align: top;
+}}
+.export-report table.sheet th {{
+  font-size: 0.65rem; text-transform: uppercase; color: #64748b; letter-spacing: 0.03em;
+}}
+.export-report tr.row.pool td {{ background: {_POOL_BG}; }}
+.export-report tr.row.excl td {{ background: {_EXCL_BG}; }}
+.export-report td.clip {{
+  max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}}
+.export-report .empty {{ color: #64748b; font-style: italic; }}
+@media print {{
+  .export-report .toolbar {{ display: none; }}
+  .export-report {{ max-width: none; font-size: 8.5pt; }}
+  .export-report table.sheet {{ font-size: 8pt; }}
+  .export-report table.sheet th, .export-report table.sheet td {{ padding: 0.08rem 0.2rem; }}
+  .export-report h1 {{ font-size: 13pt; }}
+  .export-report h2 {{ font-size: 10pt; }}
+  .export-report section {{ margin: 0.4rem 0; }}
+  tr.row {{ page-break-inside: avoid; }}
+}}
+"""
+
+
+def export_html_parts(
+    conn: sqlite3.Connection, currency: str | None = "SGD"
+) -> tuple[str, str]:
+    """Compact coloured tables for on-screen report and print."""
+    snap = _export_snapshot(conn, currency)
+    title = _md_html_escape(snap["project_name"])
+    headers = ["#", "Project", "Cost", "Outcome", "Elo", "Depends on", "Notes"]
+    money = _md_html_escape(_cost_of(snap, snap["budget_sgd"]))
+    remain = _md_html_escape(_cost_of(snap, snap["remaining"]))
+    inner = f"""<article class="export-report">
+  {_export_toolbar(contractor=False, currency=snap["currency"])}
+  <header class="report">
+    <h1>{title}</h1>
+    <p class="meta">Budget: {money}</p>
+    <p class="meta">Pool: {len(snap["pool_ids"])} of {len(snap["all_projects"])} in pool · remaining {remain}</p>
+    <p class="key"><strong>Colour key:</strong> {_md_badge("In pool", "pool")} selected under budget · {_md_badge("Excluded", "excl")} not in the success pool</p>
+    <table class="summary">
+      <tr><th>Group</th><th>Items</th></tr>
+      <tr><td>{_md_badge("In-Budget Success Pool", "pool")}</td><td>{len(snap["pooled"])}</td></tr>
+      <tr><td>{_md_badge("Excluded", "excl")}</td><td>{len(snap["excluded"])}</td></tr>
+    </table>
+  </header>
+  <section>
+    <h2>In-Budget Success Pool</h2>
+    {_html_sheet("pool", headers, _pool_sheet_rows(snap))}
+  </section>
+  <section>
+    <h2>Excluded</h2>
+    {_html_sheet("excl", headers, _excl_sheet_rows(snap))}
+  </section>
+</article>
+"""
+    return _SHEET_STYLE, inner
+
+
+def export_contractor_markdown(
+    conn: sqlite3.Connection, currency: str | None = "SGD"
+) -> str:
+    """Accepted-pool list for a contractor: no Elo, no budget, no excluded set."""
+    snap = _export_snapshot(conn, currency)
+    headers = ["#", "Project", "Description", "Cost", "Depends on", "Notes"]
+    total = _cost_of(snap, snap["spent_sgd"])
+    lines = [
+        f"# {snap['project_name']} — accepted projects",
+        "",
+        f"Accepted: {len(snap['pooled'])}",
+        f"Total: {total}",
+        "",
+    ]
+    rows = _contractor_sheet_rows(snap)
+    if rows:
+        lines.extend(_md_table(headers, rows))
+        lines.append("")
+        lines.append(f"Total: {total}")
+        lines.append("")
+    else:
+        lines.extend(["_None accepted._", ""])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def export_contractor_html_parts(
+    conn: sqlite3.Connection, currency: str | None = "SGD"
+) -> tuple[str, str]:
+    """Clean accepted-project table for contractors."""
+    snap = _export_snapshot(conn, currency)
+    title = _md_html_escape(snap["project_name"])
+    headers = ["#", "Project", "Description", "Cost", "Depends on", "Notes"]
+    total = _md_html_escape(_cost_of(snap, snap["spent_sgd"]))
+    inner = f"""<article class="export-report">
+  {_export_toolbar(contractor=True, currency=snap["currency"])}
+  <header class="report">
+    <h1>{title} — accepted projects</h1>
+    <p class="meta">Accepted: {len(snap["pooled"])}</p>
+    <p class="meta total">Total: {total}</p>
+  </header>
+  <section>
+    {_html_sheet("accepted", headers, _contractor_sheet_rows(snap))}
+    <p class="meta total">Total: {total}</p>
+  </section>
+</article>
+"""
+    return _SHEET_STYLE, inner
+
+
+def export_html(conn: sqlite3.Connection, currency: str | None = "SGD") -> str:
+    """Self-contained HTML report; green = in pool, amber = excluded."""
+    settings = get_settings(conn)
+    try:
+        project_name = (settings["project_name"] or "").strip() or "Untitled project"
+    except (IndexError, KeyError):
+        project_name = "Untitled project"
+    title = _md_html_escape(project_name)
+    style, inner = export_html_parts(conn, currency)
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<style>
+  :root {{ color-scheme: light; }}
+  body {{ font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; line-height: 1.5; }}
+  {style}
+</style>
+</head>
+<body>
+{inner}
+</body>
+</html>
+"""
+
 
 
 def _would_cycle(conn: sqlite3.Connection, project_id: int, depends_on: list[int]) -> bool:
@@ -174,11 +601,34 @@ def _validate_project(name: str, cost: float, outcome: float) -> str:
     return name
 
 
+def _norm_cost_currency(cost_currency: str) -> str:
+    cost_currency = (cost_currency or "SGD").upper()
+    if cost_currency not in CURRENCIES:
+        raise ServiceError("Currency must be SGD, USD, or MYR.")
+    return cost_currency
+
+
+def refresh_project_costs(conn: sqlite3.Connection, settings=None) -> None:
+    """Recompute each project's cost_sgd from its entered amount and currency."""
+    settings = settings or get_settings(conn)
+    usd, myr = float(settings["usd_per_sgd"]), float(settings["myr_per_sgd"])
+    for row in conn.execute(
+        "SELECT id, cost_amount, cost_currency FROM projects"
+    ):
+        amount = float(row["cost_amount"])
+        ccy = _norm_cost_currency(row["cost_currency"])
+        conn.execute(
+            "UPDATE projects SET cost_sgd = ? WHERE id = ?",
+            (to_sgd(amount, ccy, usd, myr), int(row["id"])),
+        )
+
+
 def create_project(
     conn: sqlite3.Connection,
     *,
     name: str,
     description: str,
+    notes: str = "",
     cost: float,
     cost_currency: str,
     outcome: float,
@@ -186,6 +636,8 @@ def create_project(
 ) -> int:
     settings = get_settings(conn)
     name = _validate_project(name, cost, outcome)
+    notes = (notes or "").strip()[:500]
+    cost_currency = _norm_cost_currency(cost_currency)
     cost_sgd = to_sgd(cost, cost_currency, settings["usd_per_sgd"], settings["myr_per_sgd"])
     depends_on = [int(x) for x in depends_on if int(x)]
     if any(d <= 0 for d in depends_on):
@@ -202,11 +654,22 @@ def create_project(
         cur = conn.execute(
             """
             INSERT INTO projects (
-                name, description, cost_sgd, outcome, elo_rating,
+                name, description, notes, cost_sgd, cost_amount, cost_currency,
+                outcome, elo_rating,
                 matches_played, wins, losses, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 1500, 0, 0, 0, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1500, 0, 0, 0, ?, ?)
             """,
-            (name, (description or "").strip(), cost_sgd, outcome, now, now),
+            (
+                name,
+                (description or "").strip(),
+                notes,
+                cost_sgd,
+                cost,
+                cost_currency,
+                outcome,
+                now,
+                now,
+            ),
         )
         pid = int(cur.lastrowid)
         if _would_cycle(conn, pid, depends_on):
@@ -218,6 +681,7 @@ def create_project(
                 "INSERT INTO project_dependencies (project_id, depends_on_id) VALUES (?, ?)",
                 (pid, dep),
             )
+        conn.execute("UPDATE settings SET last_cost_currency = ? WHERE id = 1", (cost_currency,))
         conn.execute("COMMIT")
         return pid
     except ServiceError:
@@ -234,6 +698,7 @@ def update_project(
     *,
     name: str,
     description: str,
+    notes: str = "",
     cost: float,
     cost_currency: str,
     outcome: float,
@@ -243,6 +708,8 @@ def update_project(
         raise ServiceError("Project not found.", 404)
     settings = get_settings(conn)
     name = _validate_project(name, cost, outcome)
+    notes = (notes or "").strip()[:500]
+    cost_currency = _norm_cost_currency(cost_currency)
     cost_sgd = to_sgd(cost, cost_currency, settings["usd_per_sgd"], settings["myr_per_sgd"])
     depends_on = [int(x) for x in depends_on if int(x)]
     if project_id in depends_on:
@@ -264,10 +731,22 @@ def update_project(
         conn.execute(
             """
             UPDATE projects
-            SET name = ?, description = ?, cost_sgd = ?, outcome = ?, updated_at = ?
+            SET name = ?, description = ?, notes = ?,
+                cost_sgd = ?, cost_amount = ?, cost_currency = ?,
+                outcome = ?, updated_at = ?
             WHERE id = ?
             """,
-            (name, (description or "").strip(), cost_sgd, outcome, now, project_id),
+            (
+                name,
+                (description or "").strip(),
+                notes,
+                cost_sgd,
+                cost,
+                cost_currency,
+                outcome,
+                now,
+                project_id,
+            ),
         )
         conn.execute("DELETE FROM project_dependencies WHERE project_id = ?", (project_id,))
         for dep in depends_on:
@@ -275,6 +754,7 @@ def update_project(
                 "INSERT INTO project_dependencies (project_id, depends_on_id) VALUES (?, ?)",
                 (project_id, dep),
             )
+        conn.execute("UPDATE settings SET last_cost_currency = ? WHERE id = 1", (cost_currency,))
         conn.execute("COMMIT")
     except ServiceError:
         conn.execute("ROLLBACK")
@@ -317,7 +797,7 @@ def update_project_name(conn: sqlite3.Connection, name: str) -> None:
         raise ServiceError("Could not rename project.") from exc
 
 
-def update_budget(conn: sqlite3.Connection, amount: float, currency: str) -> None:
+def update_budget(conn: sqlite3.Connection, amount: float, currency: str) -> dict:
     if amount <= 0:
         raise ServiceError("Budget must be a positive number.")
     currency = (currency or "SGD").upper()
@@ -331,7 +811,15 @@ def update_budget(conn: sqlite3.Connection, amount: float, currency: str) -> Non
             "UPDATE settings SET budget_sgd = ?, budget_currency = ? WHERE id = 1",
             (budget_sgd, currency),
         )
+        ejected = rebalance_pool(conn, budget_sgd)
         conn.execute("COMMIT")
+        return {
+            "ejected_ids": ejected,
+            "ejected_names": [names_by_id(conn).get(i, str(i)) for i in ejected],
+            "over_budget": sum(float(r["cost_sgd"]) for r in pool_rows(conn)) > budget_sgd + EPS,
+            "pool_cost_sgd": sum(float(r["cost_sgd"]) for r in pool_rows(conn)),
+            "budget_sgd": budget_sgd,
+        }
     except ServiceError:
         conn.execute("ROLLBACK")
         raise
@@ -349,6 +837,9 @@ def update_rates(conn: sqlite3.Connection, usd_per_sgd: float, myr_per_sgd: floa
             "UPDATE settings SET usd_per_sgd = ?, myr_per_sgd = ? WHERE id = 1",
             (usd_per_sgd, myr_per_sgd),
         )
+        settings = get_settings(conn)
+        refresh_project_costs(conn, settings)
+        rebalance_pool(conn, float(settings["budget_sgd"]))
         conn.execute("COMMIT")
     except ServiceError:
         conn.execute("ROLLBACK")
@@ -388,17 +879,86 @@ def set_pool_metric(conn: sqlite3.Connection, metric: str) -> None:
         raise ServiceError("Could not set pool metric.") from exc
 
 
+def set_theme(conn: sqlite3.Connection, theme: str) -> None:
+    theme = (theme or "system").strip().lower()
+    if theme not in {"system", "light", "dark"}:
+        raise ServiceError("Theme must be system, light, or dark.")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE settings SET theme = ? WHERE id = 1", (theme,))
+        conn.execute("COMMIT")
+    except ServiceError:
+        conn.execute("ROLLBACK")
+        raise
+    except sqlite3.IntegrityError as exc:
+        conn.execute("ROLLBACK")
+        raise ServiceError("Could not set theme.") from exc
+
+
 def pool_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return list(
         conn.execute(
-            """
+             """
             SELECT p.*, i.position, i.pinned
             FROM pool_items i
             JOIN projects p ON p.id = i.project_id
             ORDER BY i.position ASC, p.id ASC
-            """
+             """
+         )
+     )
+
+
+def rebalance_pool(conn, budget, *, protect_ids=None) -> list[int]:
+    protect_ids = set(protect_ids or ())
+    settings = get_settings(conn)
+    metric = settings["pool_eject_metric"]
+    members = []
+    for row in pool_rows(conn):
+        members.append({
+            "id": int(row["id"]),
+            "cost": float(row["cost_sgd"]),
+            "pinned": int(row["pinned"]),
+            "position": int(row["position"]),
+            "value": metric_value(metric, float(row["outcome"]), float(row["elo_rating"])),
+        })
+    ejected = []
+    depmap = dependents_map(conn)
+    by_id = {m["id"]: m for m in members}
+
+    def required_by_pinned(mid):
+        for did in _transitive_dependents(mid, depmap):
+            other = by_id.get(did)
+            if other and other["pinned"]:
+                return True
+        return False
+
+    while sum(m["cost"] for m in members) > budget + EPS:
+        by_id = {m["id"]: m for m in members}
+        cands = [
+            m for m in members
+            if not m["pinned"] and m["id"] not in protect_ids and not required_by_pinned(m["id"])
+        ]
+        if not cands:
+            cands = [
+                m for m in members
+                if not m["pinned"] and not required_by_pinned(m["id"])
+            ]
+        if not cands:
+            break
+        victim = min(cands, key=lambda m: (m["value"], -m["position"], -m["id"]))
+        drop = {victim["id"]} | {
+            did for did in _transitive_dependents(victim["id"], depmap)
+            if did in by_id and not by_id[did]["pinned"]
+        }
+        members = [m for m in members if m["id"] not in drop]
+        ejected.extend(i for i in drop if i not in ejected)
+    conn.execute("DELETE FROM pool_items")
+    for idx, m in enumerate(members):
+        conn.execute(
+            "INSERT INTO pool_items (project_id, position, pinned) VALUES (?, ?, ?)",
+            (m["id"], idx, m["pinned"]),
         )
-    )
+    return ejected
 
 
 def _transitive_deps(start: int, deps: dict[int, list[int]]) -> set[int]:
@@ -429,9 +989,14 @@ def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
         return
     missing = [d for d in _transitive_deps(project_id, deps) if d not in current_ids]
     if missing:
-        names = names_by_id(conn)
-        label = ", ".join(names[i] for i in missing)
-        raise ServiceError(f"Missing dependencies in the pool: {label}.", 409)
+        for dep_id in list(missing):
+            add_to_pool(conn, dep_id)
+        # Re-read pool after recursion
+        current = pool_rows(conn)
+        current_ids = [int(r["id"]) for r in current]
+        # Check if the requested project is now already in pool
+        if project_id in current_ids:
+            return
 
     by_id = {int(r["id"]): r for r in list_projects(conn)}
     metric = settings["pool_eject_metric"]
@@ -575,6 +1140,30 @@ def optimize_now(conn: sqlite3.Connection, metric: str | None = None) -> dict:
         float(settings["budget_sgd"]),
         settings["optimize_metric"],
     )
+
+
+def save_last_optimize(conn: sqlite3.Connection, payload: dict) -> None:
+    """Persist a compact last-optimize snapshot in settings.last_optimize_json."""
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("UPDATE settings SET last_optimize_json = ? WHERE id = 1", (json.dumps(payload),))
+        conn.execute("COMMIT")
+    except ServiceError:
+        conn.execute("ROLLBACK")
+        raise
+
+
+def load_last_optimize(conn: sqlite3.Connection) -> dict | None:
+    """Load the compact last-optimize snapshot, or None if absent/corrupt."""
+    row = conn.execute("SELECT last_optimize_json FROM settings WHERE id = 1").fetchone()
+    raw = row[0] if row is not None else None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _end_contest_sql(conn: sqlite3.Connection) -> None:
@@ -727,6 +1316,97 @@ def contest_skip(conn: sqlite3.Connection) -> None:
         conn.execute("ROLLBACK")
         raise ServiceError("Could not skip contest.") from exc
     _advance_pair(conn)
+
+
+def contest_undo(conn: sqlite3.Connection) -> None:
+    match = conn.execute(
+        "SELECT * FROM contest_matches ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if match is None:
+        raise ServiceError("Nothing to undo.")
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        winner_id = match["winner_id"]
+        if winner_id is not None:
+            now = utcnow()
+            left_won = int(winner_id) == int(match["left_id"])
+            conn.execute(
+                """
+                UPDATE projects SET elo_rating = ?,
+                    matches_played = MAX(0, matches_played - 1),
+                    wins = MAX(0, wins - ?), losses = MAX(0, losses - ?),
+                    updated_at = ? WHERE id = ?
+                """,
+                (
+                    float(match["left_elo_before"]),
+                    1 if left_won else 0,
+                    0 if left_won else 1,
+                    now,
+                    int(match["left_id"]),
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE projects SET elo_rating = ?,
+                    matches_played = MAX(0, matches_played - 1),
+                    wins = MAX(0, wins - ?), losses = MAX(0, losses - ?),
+                    updated_at = ? WHERE id = ?
+                """,
+                (
+                    float(match["right_elo_before"]),
+                    0 if left_won else 1,
+                    1 if left_won else 0,
+                    now,
+                    int(match["right_id"]),
+                ),
+            )
+            conn.execute(
+                "UPDATE settings SET contest_decided = MAX(0, contest_decided - 1) WHERE id = 1"
+            )
+        conn.execute(
+            """
+            UPDATE settings SET contest_shown = MAX(0, contest_shown - 1),
+                contest_left_id = ?, contest_right_id = ?, contest_active = 1
+            WHERE id = 1
+            """,
+            (int(match["left_id"]), int(match["right_id"])),
+        )
+        conn.execute("DELETE FROM contest_matches WHERE id = ?", (int(match["id"]),))
+        conn.execute("COMMIT")
+    except ServiceError:
+        conn.execute("ROLLBACK")
+        raise
+    except sqlite3.IntegrityError as exc:
+        conn.execute("ROLLBACK")
+        raise ServiceError("Could not undo contest.") from exc
+
+
+def contest_last_match(conn: sqlite3.Connection) -> dict | None:
+    row = conn.execute(
+         "SELECT * FROM contest_matches ORDER BY id DESC LIMIT 1"
+     ).fetchone()
+    if row is None:
+        return None
+    names = names_by_id(conn)
+    left_id = int(row["left_id"])
+    right_id = int(row["right_id"])
+    winner_id = row["winner_id"]
+    recap = {
+         "left_name": names.get(left_id, "?"),
+         "right_name": names.get(right_id, "?"),
+         "skipped": winner_id is None,
+         "winner_name": names.get(int(winner_id), "?") if winner_id is not None else None,
+         "left_delta": None,
+         "right_delta": None,
+    }
+    if winner_id is not None and row["left_elo_after"] is not None:
+        recap["left_delta"] = round(
+            float(row["left_elo_after"]) - float(row["left_elo_before"]), 1
+        )
+        recap["right_delta"] = round(
+            float(row["right_elo_after"]) - float(row["right_elo_before"]), 1
+        )
+    return recap
 
 
 def reset_elo(conn: sqlite3.Connection, confirm: str) -> None:

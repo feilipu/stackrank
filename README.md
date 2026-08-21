@@ -8,24 +8,69 @@ Single-user local app for ranking sub-projects under a budget. Three complementa
 
 Money is stored in **SGD**. USD and MYR are shown using configurable “foreign per 1 SGD” rates. You can type the budget (or a project cost) in any of the three currencies.
 
-## Setup and run
+## Run on a Mac (technical friend)
+
+You need **Python 3.11 or newer**. Check with `python3 --version`. If that is missing or too old, install from [python.org/downloads](https://www.python.org/downloads/) (the official installer is enough; Xcode is not required). The **first** launch needs internet so `pip` can fetch FastAPI and friends.
+
+Then, in Terminal, from this folder:
+
+```bash
+chmod +x run.sh install.sh   # once
+./run.sh
+```
+
+`./install.sh` does the same thing as `./run.sh`: it creates `.venv`, installs the runtime packages, starts the app at [http://127.0.0.1:8000](http://127.0.0.1:8000), and opens your default browser. Stop with **Ctrl+C**.
+
+The first launch with an empty `data/` folder seeds 12 example projects and a S$250,000 budget. After that, everything lives in `data/stackrank.db` next to `run.sh`.
+
+Tabs: **Projects**, **Optimize**, **Pool**, **Contest**, **Export**. The header title is the overall project name (rename in place). Export is a compact coloured report (green = in the success pool, amber = excluded) plus a contractor list of accepted projects; pick SGD / USD / MYR on that tab. In-pool items are green; out-of-pool items are amber.
+
+Equivalent manual commands (same result as `./run.sh`):
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn stackrank.main:app --reload --app-dir src
+python -m uvicorn stackrank.main:app --app-dir src --host 127.0.0.1 --port 8000
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000). The first launch seeds 12 example projects and a S$250,000 budget.
+If port 8000 is taken: `STACKRANK_PORT=8001 ./run.sh`.
 
-Tabs: **Projects**, **Optimize**, **Pool**, **Contest**. The header title is the overall project name (rename in place). **Export** downloads a markdown document of every sub-project. In-pool items are green; out-of-pool items are amber.
+No Node, Docker, or CDN is required. After the first `pip install`, later launches can reuse the venv (HTMX, Tailwind, and SortableJS are vendored in `static/vendor/`).
 
-## Tests
+## Share a copy
+
+From a development checkout:
+
+```bash
+./scripts/pack.sh
+```
+
+That writes `dist/stackrank-YYYYMMDD.zip` without `.venv`, your live database, logs, or `.git`. Unzip on the other Mac, `cd stackrank`, and run `./run.sh` (or `./install.sh`).
+
+To also hand over your current projects, copy `data/stackrank.db` into their `data/` folder (create `data/` if needed) **before** they start the app, or replace theirs after the first launch.
+
+## Tests (this repo)
 
 ```bash
 source .venv/bin/activate
-pytest
+pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
 ```
 
-Tests use a temporary SQLite file and never touch `data/stackrank.db`.
+Tests use a temporary SQLite file and never touch `data/stackrank.db`. Playwright is only for the optional `scripts/smoke_tabs.py` check, not for running the app.
+
+Developers who want auto-reload:
+
+```bash
+source .venv/bin/activate
+uvicorn stackrank.main:app --reload --app-dir src --host 127.0.0.1 --port 8000
+```
+
+## Rebuild / GitHub
+
+Product spec: [`stackrank_prompt.txt`](stackrank_prompt.txt).  
+Qwen-sized rebuild slices: [`implementation_plan.md`](implementation_plan.md).  
+License: MIT.
+
+This tree is meant to be a public git repo. Do not commit `.venv/`, `data/*.db`, or `dist/`. After a GitHub remote exists, push `main` when you ask.

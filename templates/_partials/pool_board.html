@@ -1,33 +1,23 @@
-<section id="pool-board">
-  <form hx-post="/settings/pool-metric" hx-swap="outerHTML" hx-target="#pool-board"
-        class="mb-4 flex flex-wrap items-center gap-3 text-sm">
-    <span class="text-xs font-medium uppercase tracking-wide text-slate-500">Auto-eject metric</span>
-    {% for value, label in [('outcome', 'Outcome'), ('elo', 'Elo'), ('blend', 'Blend')] %}
-      <label class="inline-flex items-center gap-1">
-        <input type="radio" name="metric" value="{{ value }}"
-               {{ "checked" if pool_metric == value else "" }}
-               onchange="this.form.requestSubmit()">
-        {{ label }}
-      </label>
-    {% endfor %}
-  </form>
-
+<section id="pool-board"{% if pool_board_oob %} hx-swap-oob="true"{% endif %}>
   <div id="pool-totals" class="mb-4 grid gap-3 rounded-md border bg-white p-3 text-sm shadow-sm md:grid-cols-5">
     <div><span class="block text-xs uppercase text-slate-400">In pool</span>
       <span class="text-lg font-semibold">{{ totals.count }}</span></div>
     <div><span class="block text-xs uppercase text-slate-400">Spent</span>
       <span class="font-mono">{{ totals.cost.text }}</span></div>
-    <div><span class="block text-xs uppercase text-slate-400">Remaining</span>
-      <span class="font-mono">{{ totals.remaining.text }}</span></div>
+    <div><span class="block text-xs uppercase text-slate-400">{{ "Over by" if totals.over_budget else "Remaining" }}</span>
+         <span class="font-mono {{ "text-red-700" if totals.over_budget else "" }}">{{ totals.remaining.text }}</span></div>
     <div><span class="block text-xs uppercase text-slate-400">Outcome</span>
       <span class="text-lg font-semibold">{{ totals.outcome }}</span></div>
     <div><span class="block text-xs uppercase text-slate-400">Elo sum</span>
       <span class="text-lg font-semibold">{{ totals.elo }}</span></div>
   </div>
 
-  <div class="grid gap-4 md:grid-cols-2">
+  {% if totals.over_budget %}
+  <p class="mb-3 rounded-md flash-error text-sm">Over budget — pinned items exceed the allowance.</p>
+{% endif %}
+<div class="grid gap-4 md:grid-cols-2">
     <section>
-      <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Available</h2>
+      <h2 class="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">Available Pool</h2>
       <ul id="available-list" class="col-available min-h-[8rem] space-y-2 rounded-md border p-2">
         {% for item in available %}
           <li class="sub-out rounded border bg-white p-3 shadow-sm" data-id="{{ item.id }}">
@@ -35,13 +25,23 @@
               <div>
                 <h3 class="font-medium">{{ item.name }}</h3>
                 <p class="text-xs text-slate-500">{{ item.description or "—" }}</p>
-                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }}</p>
+                {% if item.notes %}
+                <p class="text-xs text-slate-500">{{ item.notes }}</p>
+                {% endif %}
+                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }} · outcome/S$ {{ item.outcome_per_sgd }} · Elo/S$ {{ item.elo_per_sgd }}</p>
+                {% set row = item %}
+                {% include "_partials/dep_sketch.html" %}
               </div>
               <button type="button" class="rounded bg-indigo-700 px-2 py-1 text-xs text-white"
                       hx-post="/pool/add/{{ item.id }}" hx-target="#pool-board" hx-swap="outerHTML">
                 Add
               </button>
             </div>
+          </li>
+        {% else %}
+          <li class="empty-state p-4">
+            {% include "_partials/empty_art.html" %}
+            <p class="text-sm italic text-slate-500">Nothing available.</p>
           </li>
         {% endfor %}
       </ul>
@@ -56,7 +56,12 @@
               <div>
                 <h3 class="font-medium">{{ item.name }}</h3>
                 <p class="text-xs text-slate-500">{{ item.description or "—" }}</p>
-                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }}</p>
+                {% if item.notes %}
+                <p class="text-xs text-slate-500">{{ item.notes }}</p>
+                {% endif %}
+                <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }} · outcome/S$ {{ item.outcome_per_sgd }} · Elo/S$ {{ item.elo_per_sgd }}</p>
+                {% set row = item %}
+                {% include "_partials/dep_sketch.html" %}
               </div>
               <div class="flex flex-col gap-1">
                 <button type="button" class="rounded border px-2 py-0.5 text-xs"

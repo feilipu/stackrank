@@ -109,11 +109,20 @@ def seed_if_empty(conn: sqlite3.Connection) -> None:
             cur = conn.execute(
                 """
                 INSERT INTO projects (
-                    name, description, cost_sgd, outcome, elo_rating,
+                    name, description, cost_sgd, cost_amount, cost_currency,
+                    outcome, elo_rating,
                     matches_played, wins, losses, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 1500, 0, 0, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'SGD', ?, 1500, 0, 0, 0, ?, ?)
                 """,
-                (item["name"], item["description"], item["cost_sgd"], item["outcome"], now, now),
+                (
+                    item["name"],
+                    item["description"],
+                    item["cost_sgd"],
+                    item["cost_sgd"],
+                    item["outcome"],
+                    now,
+                    now,
+                ),
             )
             names_to_id[item["name"]] = int(cur.lastrowid)
         for item in SEED_PROJECTS:
