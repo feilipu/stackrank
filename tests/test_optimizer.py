@@ -83,3 +83,21 @@ def test_result_ancestor_closed_and_within_budget():
             assert dep in selected
     total = sum(p["cost_sgd"] for p in projs if int(p["id"]) in selected)
     assert total <= 1500
+
+
+def test_exclusive_pair_cannot_both_be_selected():
+    projs = [_proj(1, 10, outcome=90.0), _proj(2, 10, outcome=80.0)]
+    result = optimize(
+        projs, dependencies=[], budget_sgd=100, exclusions=[(1, 2)]
+    )
+    selected = set(result["selected"])
+    assert selected == {1}
+    assert 2 in result["excluded"]
+
+
+def test_exclusive_pair_picks_higher_value():
+    projs = [_proj(1, 10, outcome=10.0), _proj(2, 10, outcome=90.0)]
+    result = optimize(
+        projs, dependencies=[], budget_sgd=100, metric="outcome", exclusions=[(1, 2)]
+    )
+    assert set(result["selected"]) == {2}

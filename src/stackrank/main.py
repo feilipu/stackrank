@@ -102,6 +102,34 @@ def render_partial(name: str, context: dict) -> str:
     return templates.get_template(name).render(context)
 
 
+def flash_html(message: str = "", css: str = "flash-ok") -> str:
+    return render_partial(
+        "_partials/flash.html",
+        dict(flash_message=message, flash_class=css),
+    )
+
+
+def eject_flash(*, exclusive_names=None, budget_names=None, budget_label: str = "budget") -> str:
+    exclusive_names = [n for n in (exclusive_names or []) if n]
+    budget_names = [n for n in (budget_names or []) if n]
+    parts: list[str] = []
+    if exclusive_names:
+        parts.append(
+            "Cannot coexist in the build; removed from the success pool: "
+            + ", ".join(exclusive_names)
+            + "."
+        )
+    if budget_names:
+        parts.append(
+            f"Removed from the success pool to fit the {budget_label}: "
+            + ", ".join(budget_names)
+            + "."
+        )
+    if not parts:
+        return flash_html("", "")
+    return flash_html(" ".join(parts), "flash-ok")
+
+
 def pool_board_html(ctx: dict, *, oob: bool = False) -> str:
     """Pool columns/totals plus OOB fill (fill lives outside #pool-board)."""
     return (
@@ -129,8 +157,11 @@ def to_id_list(items) -> list[int]:
         items = [items]
     out: list[int] = []
     for raw in items:
+        text = str(raw).strip()
+        if not text or text == "0":
+            continue
         try:
-            num = int(str(raw).strip())
+            num = int(text)
         except (TypeError, ValueError):
             raise services.ServiceError("Invalid dependency selection.")
         if num > 0 and num not in out:
@@ -143,6 +174,7 @@ def project_payload(form_data: dict) -> dict:
     cost = form_data.get("cost") or ""
     outcome = form_data.get("outcome") or ""
     depends_on = form_data.get("depends_on") or []
+    excludes = form_data.get("excludes") or []
     return {
         "name": str(form_data.get("name") or "").strip(),
         "description": str(form_data.get("description") or "").strip(),
@@ -151,6 +183,7 @@ def project_payload(form_data: dict) -> dict:
         "cost_currency": str(form_data.get("cost_currency") or "SGD").upper(),
         "outcome": to_number(outcome, field="Outcome"),
         "depends_on": to_id_list(depends_on),
+        "excludes": to_id_list(excludes),
     }
 
 
@@ -237,6 +270,7 @@ def project_context(conn, *, page: str | None = "projects", q: str = "", pool: s
     pool_ids = {int(r["id"]) for r in services.pool_rows(conn)}
     names = services.names_by_id(conn)
     deps_map = services.dependencies_map(conn)
+    excl_map = services.exclusions_map(conn)
 
     rows: list[dict] = []
     for row in services.list_projects(conn):
@@ -258,6 +292,7 @@ def project_context(conn, *, page: str | None = "projects", q: str = "", pool: s
                 "losses": int(row["losses"]),
                 "in_pool": pid in pool_ids,
                 "dependencies": [names.get(d, "?") for d in deps_map.get(pid, [])],
+                "exclusions": [names.get(d, "?") for d in excl_map.get(pid, [])],
             }
         )
 
@@ -319,6 +354,7 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
     pool_ids = {int(r["id"]) for r in in_pool}
     names = services.names_by_id(conn)
     deps_map = services.dependencies_map(conn)
+    excl_map = services.exclusions_map(conn)
 
     def decorate(row):
         pid = int(row["id"])
@@ -336,6 +372,7 @@ def pool_context(conn, *, page: str | None = "pool") -> dict:
             "elo_rating": round(float(row["elo_rating"])),
             "pinned": bool(int(row["pinned"])) if "pinned" in row.keys() else False,
             "dependencies": [names.get(d, "?") for d in deps_map.get(pid, [])],
+            "exclusions": [names.get(d, "?") for d in excl_map.get(pid, [])],
         }
 
     pool_items = [decorate(dict(r)) for r in in_pool]
@@ -659,6 +696,7 @@ def project_edit_form(request: Request, project_id: int):
             raise services.ServiceError("Project not found.", 404)
         ctx = project_context(conn, page=None)
         selected = [int(d) for d in services.dependencies_map(conn).get(project_id, [])]
+        selected_excludes = [int(d) for d in services.exclusions_map(conn).get(project_id, [])]
     keys = row.keys()
     if "cost_amount" in keys and row["cost_amount"] is not None:
         entered = float(row["cost_amount"])
@@ -676,7 +714,8 @@ def project_edit_form(request: Request, project_id: int):
              cost_currency=entered_ccy,
              name=row["name"], description=row["description"] or "",
              notes=(row["notes"] if "notes" in row.keys() else "") or "",
-             outcome=float(row["outcome"]), selected=selected, flash=None)
+             outcome=float(row["outcome"]), selected=selected,
+             selected_excludes=selected_excludes, flash=None)
          )
 
 
@@ -684,8 +723,11 @@ def project_edit_form(request: Request, project_id: int):
 async def update_project(request: Request, project_id: int):
     data = await read_body(request)
     with get_conn() as conn:
-        services.update_project(conn, project_id, **project_payload(data))
-    return HTMLResponse(project_list_html())
+        result = services.update_project(conn, project_id, **project_payload(data))
+    return HTMLResponse(
+        project_list_html()
+        + eject_flash(exclusive_names=result.get("exclusive_names"))
+    )
 
 
 @app.post("/projects/{project_id}/delete")
@@ -722,7 +764,7 @@ async def set_budget(request: Request, amount: str = Form(""), currency: str = F
     return HTMLResponse(
         render_partial("_partials/budget_card.html", dict(ctx, flash=None)) +
         pool_board_html(pool_ctx, oob=True) +
-        render_partial("_partials/flash.html", dict(flash_message=flash_message, flash_class=flash_class)),
+        flash_html(flash_message, flash_class),
         headers={"HX-Trigger": "list-refreshed"} if getattr(request.state, "is_hx", False) else {}
     )
 
@@ -733,9 +775,17 @@ async def set_rates(request: Request, usd_per_sgd: str = Form("0"), myr_per_sgd:
     usd = to_number(usd_per_sgd if usd_per_sgd else "0", field="USD per SGD")
     myr = to_number(myr_per_sgd if myr_per_sgd else "0", field="MYR per SGD")
     with get_conn() as conn:
-        services.update_rates(conn, usd, myr)
+        result = services.update_rates(conn, usd, myr)
         ctx = project_context(conn, page=None)
-    return HTMLResponse(render_partial("_partials/budget_card.html", dict(ctx, flash=None)))
+        pool_ctx = pool_context(conn, page="pool")
+    return HTMLResponse(
+        render_partial("_partials/budget_card.html", dict(ctx, flash=None))
+        + pool_board_html(pool_ctx, oob=True)
+        + eject_flash(
+            budget_names=result.get("ejected_names"),
+            budget_label="new costs",
+        )
+    )
 
 
 _THEME_NEXT = {
@@ -817,9 +867,15 @@ def pool_page(request: Request):
 @app.post("/pool/add/{project_id}")
 async def pool_add(project_id: int) -> HTMLResponse:
     with get_conn() as conn:
-        services.add_to_pool(conn, project_id)
+        result = services.add_to_pool(conn, project_id)
         ctx = pool_context(conn, page=None)
-    return HTMLResponse(pool_board_html(ctx))
+    return HTMLResponse(
+        pool_board_html(ctx)
+        + eject_flash(
+            exclusive_names=result.get("exclusive_names"),
+            budget_names=result.get("budget_names"),
+        )
+    )
 
 
 @app.post("/pool/remove/{project_id}")

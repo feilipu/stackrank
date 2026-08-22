@@ -29,6 +29,9 @@
                 <p class="text-xs text-slate-500">{{ item.notes }}</p>
                 {% endif %}
                 <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }} · outcome/S$ {{ item.outcome_per_sgd }} · Elo/S$ {{ item.elo_per_sgd }}</p>
+                {% if item.exclusions %}
+                <p class="excl-note mt-1 text-xs">Excludes: {{ item.exclusions | join(", ") }}</p>
+                {% endif %}
                 {% set row = item %}
                 {% include "_partials/dep_sketch.html" %}
               </div>
@@ -60,6 +63,9 @@
                 <p class="text-xs text-slate-500">{{ item.notes }}</p>
                 {% endif %}
                 <p class="mt-1 font-mono text-xs">{{ item.cost.text }} · outcome {{ item.outcome }} · outcome/S$ {{ item.outcome_per_sgd }} · Elo/S$ {{ item.elo_per_sgd }}</p>
+                {% if item.exclusions %}
+                <p class="excl-note mt-1 text-xs">Excludes: {{ item.exclusions | join(", ") }}</p>
+                {% endif %}
                 {% set row = item %}
                 {% include "_partials/dep_sketch.html" %}
               </div>

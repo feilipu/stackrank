@@ -88,7 +88,8 @@ Preferred implementation (`n ≤ 24`, seed is 12):
 - Index projects `0..n-1`.
 - `anc_mask[i]` = bitset of strict ancestors of i (not including i).
 - `feasible(mask)` iff for every bit i in mask, `anc_mask[i] ⊆ mask`.
-- Enumerate only ancestor-closed subsets via recursion in topo order: at project i, either skip, or take if `anc_mask[i] ⊆ chosen_so_far`.
+- Enumerate only ancestor-closed subsets via recursion in topo order: at project i, either skip, or take if `anc_mask[i] ⊆ chosen_so_far` **and** no already-chosen project excludes i.
+- Exclusive pairs (`project_exclusions`) are symmetric: A and B cannot both appear in the selected mask.
 - Prune when `cost > B`.
 - Track best `value`, breaking ties by **lower cost**, then **higher Elo sum**, then **smaller mask** (stable).
 

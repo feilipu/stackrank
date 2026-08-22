@@ -200,8 +200,7 @@ def test_export_markdown_uses_renamed_title(client):
     assert "acme-launch.md" in (resp.headers.get("content-disposition") or "")
 
 
-def test_budget_shrink_flash_and_pool_oob(client):
-    import re
+def test_budget_shrink_flash_and_pool_oob(client, conn):
     for name, cost, outcome in (("EjectMe", "100", "10"), ("KeepMe", "100", "90")):
         client.post(
              "/projects",
@@ -214,12 +213,7 @@ def test_budget_shrink_flash_and_pool_oob(client):
              },
             follow_redirects=False,
          )
-    page = client.get("/projects")
-    ids = {}
-    for name in ("EjectMe", "KeepMe"):
-        m = re.search(rf'id="project-(\d+)"[\s\S]*?<h2[^>]*>{name}</h2>', page.text)
-        assert m, name
-        ids[name] = m.group(1)
+    ids = {name: _id_for(conn, name) for name in ("EjectMe", "KeepMe")}
     client.post(f"/pool/add/{ids['EjectMe']}")
     client.post(f"/pool/add/{ids['KeepMe']}")
     resp = client.post(
@@ -232,3 +226,219 @@ def test_budget_shrink_flash_and_pool_oob(client):
     assert "EjectMe" in resp.text
     assert 'id="pool-board"' in resp.text
     assert "hx-swap-oob" in resp.text
+    assert "Removed from the success pool to fit the new budget" in resp.text
+
+
+def test_projects_form_includes_excludes_field(client):
+    resp = client.get("/projects")
+    assert resp.status_code == 200
+    assert 'name="excludes"' in resp.text
+    assert "Excludes" in resp.text
+    assert 'name="depends_on"' in resp.text
+    assert "rel-selects" in resp.text
+    form = resp.text.split('id="new-project-form"', 1)[-1].split("</form>", 1)[0]
+    assert 'type="checkbox" name="excludes"' in form
+    assert 'type="checkbox" name="depends_on"' in form
+    assert "rel-select-box" in form
+
+
+def _id_for(conn, name: str) -> int:
+    row = conn.execute("SELECT id FROM projects WHERE name=?", (name,)).fetchone()
+    assert row is not None, name
+    return int(row[0])
+
+
+def _article(html: str, pid: int) -> str:
+    m = re.search(rf'<article id="project-{pid}"[\s\S]*?</article>', html)
+    assert m, f"missing article for {pid}"
+    return m.group(0)
+
+
+def test_exclude_posted_with_hidden_sentinel_still_saves(client, conn):
+    """Browser may send excludes=0 (sentinel) plus the selected id."""
+    client.post(
+        "/projects",
+        data={
+            "name": "SentinelA",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+        },
+        follow_redirects=False,
+    )
+    client.post(
+        "/projects",
+        data={
+            "name": "SentinelB",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+            "excludes": ["0", str(_id_for(conn, "SentinelA"))],
+        },
+        follow_redirects=False,
+    )
+    a_id = _id_for(conn, "SentinelA")
+    b_id = _id_for(conn, "SentinelB")
+    page = client.get("/projects")
+    b_html = _article(page.text, b_id)
+    assert "Excludes:" in b_html and "SentinelA" in b_html
+    pairs = {
+        (int(r["project_id"]), int(r["excludes_id"]))
+        for r in conn.execute("SELECT project_id, excludes_id FROM project_exclusions")
+    }
+    assert (b_id, a_id) in pairs and (a_id, b_id) in pairs
+
+
+def test_exclude_note_appears_on_peer_card_and_edit(client, conn):
+    for name in ("NoteAltA", "NoteAltB"):
+        client.post(
+            "/projects",
+            data={
+                "name": name,
+                "description": "",
+                "cost": "100",
+                "cost_currency": "SGD",
+                "outcome": "40",
+            },
+            follow_redirects=False,
+        )
+    a_id = _id_for(conn, "NoteAltA")
+    b_id = _id_for(conn, "NoteAltB")
+    upd = client.post(
+        f"/projects/{a_id}",
+        data={
+            "name": "NoteAltA",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+            "excludes": str(b_id),
+        },
+        follow_redirects=False,
+    )
+    assert upd.status_code == 200, upd.text[:400]
+    a_html = _article(upd.text, a_id)
+    b_html = _article(upd.text, b_id)
+    assert "Excludes:" in a_html and "NoteAltB" in a_html
+    assert "Excludes:" in b_html and "NoteAltA" in b_html
+    edit_b = client.get(f"/projects/{b_id}/edit")
+    assert edit_b.status_code == 200
+    opt = re.search(
+        rf'<input type="checkbox" name="excludes" value="{a_id}"([^>]*)>',
+        edit_b.text,
+    )
+    assert opt is not None and "checked" in opt.group(1)
+
+
+def test_clearing_exclude_removes_note_from_both_cards(client, conn):
+    for name in ("GoneAltA", "GoneAltB"):
+        client.post(
+            "/projects",
+            data={
+                "name": name,
+                "description": "",
+                "cost": "100",
+                "cost_currency": "SGD",
+                "outcome": "40",
+            },
+            follow_redirects=False,
+        )
+    a_id = _id_for(conn, "GoneAltA")
+    b_id = _id_for(conn, "GoneAltB")
+    client.post(
+        f"/projects/{a_id}",
+        data={
+            "name": "GoneAltA",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+            "excludes": str(b_id),
+        },
+        follow_redirects=False,
+    )
+    cleared = client.post(
+        f"/projects/{a_id}",
+        data={
+            "name": "GoneAltA",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+            "excludes": "0",
+        },
+        follow_redirects=False,
+    )
+    assert cleared.status_code == 200, cleared.text[:400]
+    a_html = _article(cleared.text, a_id)
+    b_html = _article(cleared.text, b_id)
+    assert "Excludes:" not in a_html
+    assert "Excludes:" not in b_html
+    edit_b = client.get(f"/projects/{b_id}/edit")
+    opt = re.search(
+        rf'<input type="checkbox" name="excludes" value="{a_id}"([^>]*)>',
+        edit_b.text,
+    )
+    assert opt is None or "checked" not in opt.group(1)
+
+
+def test_pool_add_exclusive_flashes_pushed_out_name(client, conn):
+    for name in ("OptionA", "OptionB"):
+        client.post(
+            "/projects",
+            data={
+                "name": name,
+                "description": "",
+                "cost": "100",
+                "cost_currency": "SGD",
+                "outcome": "40",
+            },
+            follow_redirects=False,
+        )
+    a_id = _id_for(conn, "OptionA")
+    b_id = _id_for(conn, "OptionB")
+    upd = client.post(
+        f"/projects/{b_id}",
+        data={
+            "name": "OptionB",
+            "description": "",
+            "cost": "100",
+            "cost_currency": "SGD",
+            "outcome": "40",
+            "excludes": str(a_id),
+        },
+        follow_redirects=False,
+    )
+    assert upd.status_code == 200, upd.text[:400]
+    client.post(f"/pool/add/{a_id}")
+    resp = client.post(f"/pool/add/{b_id}", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "Cannot coexist in the build" in resp.text
+    assert "OptionA" in resp.text
+    assert 'id="flash"' in resp.text
+    assert "hx-swap-oob" in resp.text
+
+
+def test_pool_add_budget_eject_flashes_name(client, conn):
+    client.post("/settings/budget", data={"amount": "150", "currency": "SGD"})
+    for name, outcome in (("StayHigh", "90"), ("GoLow", "10")):
+        client.post(
+            "/projects",
+            data={
+                "name": name,
+                "description": "",
+                "cost": "100",
+                "cost_currency": "SGD",
+                "outcome": outcome,
+            },
+            follow_redirects=False,
+        )
+    high_id = _id_for(conn, "StayHigh")
+    low_id = _id_for(conn, "GoLow")
+    client.post(f"/pool/add/{low_id}")
+    resp = client.post(f"/pool/add/{high_id}", follow_redirects=False)
+    assert resp.status_code == 200
+    assert "Removed from the success pool to fit the budget" in resp.text
+    assert "GoLow" in resp.text

@@ -81,6 +81,27 @@ def dependency_pairs(conn: sqlite3.Connection) -> list[tuple[int, int]]:
     ]
 
 
+def exclusions_map(conn: sqlite3.Connection) -> dict[int, list[int]]:
+    """Undirected: an exclude on A is also visible on B."""
+    mapping: dict[int, list[int]] = defaultdict(list)
+    for row in conn.execute("SELECT project_id, excludes_id FROM project_exclusions"):
+        a, b = int(row["project_id"]), int(row["excludes_id"])
+        if a == b:
+            continue
+        if b not in mapping[a]:
+            mapping[a].append(b)
+        if a not in mapping[b]:
+            mapping[b].append(a)
+    return mapping
+
+
+def exclusion_pairs(conn: sqlite3.Connection) -> list[tuple[int, int]]:
+    return [
+        (int(r["project_id"]), int(r["excludes_id"]))
+        for r in conn.execute("SELECT project_id, excludes_id FROM project_exclusions")
+    ]
+
+
 def names_by_id(conn: sqlite3.Connection) -> dict[int, str]:
     return {int(r["id"]): r["name"] for r in conn.execute("SELECT id, name FROM projects")}
 
@@ -590,6 +611,209 @@ def _would_cycle(conn: sqlite3.Connection, project_id: int, depends_on: list[int
     return any(dfs(n) for n in list(children.keys()) + [project_id])
 
 
+def _norm_id_list(raw) -> list[int]:
+    out: list[int] = []
+    for x in raw or []:
+        i = int(x)
+        if i and i not in out:
+            out.append(i)
+    return out
+
+
+def _dep_graph(conn: sqlite3.Connection, project_id: int, depends_on: list[int]):
+    children: dict[int, list[int]] = defaultdict(list)
+    parents: dict[int, list[int]] = defaultdict(list)
+    for pid, dep in dependency_pairs(conn):
+        if pid == project_id:
+            continue
+        children[dep].append(pid)
+        parents[pid].append(dep)
+    for dep in depends_on:
+        children[dep].append(project_id)
+        parents[project_id].append(dep)
+    return children, parents
+
+
+def _walk_related(start: int, adj: dict[int, list[int]]) -> set[int]:
+    out: set[int] = set()
+    queue = deque(adj.get(start, []))
+    while queue:
+        node = queue.popleft()
+        if node in out:
+            continue
+        out.add(node)
+        queue.extend(adj.get(node, []))
+    return out
+
+
+def _dep_related_ids(conn: sqlite3.Connection, project_id: int, depends_on: list[int]) -> set[int]:
+    children, parents = _dep_graph(conn, project_id, depends_on)
+    return _walk_related(project_id, parents) | _walk_related(project_id, children)
+
+
+def _proposed_excl_map(
+    conn: sqlite3.Connection, project_id: int, excludes: list[int]
+) -> dict[int, set[int]]:
+    mapping: dict[int, set[int]] = defaultdict(set)
+    for pid, other in exclusion_pairs(conn):
+        if pid == project_id or other == project_id:
+            continue
+        mapping[pid].add(other)
+    for other in excludes:
+        mapping[project_id].add(other)
+        mapping[other].add(project_id)
+    return mapping
+
+
+def _closures_have_exclusive(
+    conn: sqlite3.Connection,
+    project_id: int,
+    depends_on: list[int],
+    excludes: list[int],
+) -> bool:
+    _children, parents = _dep_graph(conn, project_id, depends_on)
+    excl = _proposed_excl_map(conn, project_id, excludes)
+    ids = {int(r["id"]) for r in list_projects(conn)} | {project_id}
+    ancestor_cache: dict[int, set[int]] = {}
+
+    def ancestors_of(node: int) -> set[int]:
+        cached = ancestor_cache.get(node)
+        if cached is not None:
+            return cached
+        found = _walk_related(node, parents)
+        ancestor_cache[node] = found
+        return found
+
+    for pid in ids:
+        closure = ancestors_of(pid) | {pid}
+        for a in closure:
+            if excl[a] & closure:
+                return True
+    return False
+
+
+def _assert_exclusions_ok(
+    conn: sqlite3.Connection,
+    project_id: int,
+    excludes: list[int],
+    depends_on: list[int],
+) -> list[int]:
+    excludes = _norm_id_list(excludes)
+    if project_id in excludes:
+        raise ServiceError("A project cannot exclude itself.")
+    existing = {int(r["id"]) for r in list_projects(conn)}
+    if project_id:
+        existing.add(project_id)
+    for eid in excludes:
+        if eid not in existing:
+            raise ServiceError("Exclusion must be an existing project.")
+    if set(excludes) & set(depends_on):
+        raise ServiceError("A project cannot exclude something it depends on.")
+    related = _dep_related_ids(conn, project_id, depends_on)
+    if set(excludes) & related:
+        raise ServiceError(
+            "A project cannot exclude something it depends on, or that depends on it."
+        )
+    if _closures_have_exclusive(conn, project_id, depends_on, excludes):
+        if excludes:
+            raise ServiceError(
+                "That exclusion would put mutually exclusive projects in the same dependency chain."
+            )
+        raise ServiceError("Dependencies include mutually exclusive projects.")
+    return excludes
+
+
+def _exclusion_partners(conn: sqlite3.Connection, project_id: int) -> set[int]:
+    rows = conn.execute(
+        """
+        SELECT excludes_id AS other FROM project_exclusions WHERE project_id = ?
+        UNION
+        SELECT project_id AS other FROM project_exclusions WHERE excludes_id = ?
+        """,
+        (project_id, project_id),
+    )
+    return {int(r[0]) for r in rows}
+
+
+def _drop_exclusion_pair(conn: sqlite3.Connection, left: int, right: int) -> None:
+    conn.execute(
+        """
+        DELETE FROM project_exclusions
+        WHERE (project_id = ? AND excludes_id = ?)
+           OR (project_id = ? AND excludes_id = ?)
+        """,
+        (left, right, right, left),
+    )
+
+
+def _replace_exclusions(conn: sqlite3.Connection, project_id: int, excludes: list[int]) -> None:
+    wanted = set(_norm_id_list(excludes))
+    wanted.discard(project_id)
+    old = _exclusion_partners(conn, project_id)
+    for other in old - wanted:
+        _drop_exclusion_pair(conn, project_id, other)
+    for other in wanted:
+        conn.execute(
+            "INSERT OR IGNORE INTO project_exclusions (project_id, excludes_id) VALUES (?, ?)",
+            (project_id, other),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO project_exclusions (project_id, excludes_id) VALUES (?, ?)",
+            (other, project_id),
+        )
+
+
+def _eject_report(conn: sqlite3.Connection, exclusive_ids: list[int], budget_ids: list[int]) -> dict:
+    names = names_by_id(conn)
+    return {
+        "exclusive_ids": list(exclusive_ids),
+        "exclusive_names": [names.get(i, str(i)) for i in exclusive_ids],
+        "budget_ids": list(budget_ids),
+        "budget_names": [names.get(i, str(i)) for i in budget_ids],
+    }
+
+
+def _eject_exclusives_from_pool(
+    conn: sqlite3.Connection, keep_id: int, excludes: list[int]
+) -> list[int]:
+    """Drop pooled alternatives of keep_id (and their unpinned dependents)."""
+    current = pool_rows(conn)
+    current_ids = {int(r["id"]) for r in current}
+    if keep_id not in current_ids:
+        return []
+    pinned = {int(r["id"]) for r in current if int(r["pinned"])}
+    depmap = dependents_map(conn)
+    names = names_by_id(conn)
+    drop: list[int] = []
+    for other in excludes:
+        if other not in current_ids or other in drop:
+            continue
+        cascade = {other} | {
+            d for d in _transitive_dependents(other, depmap) if d in current_ids
+        }
+        blocked = cascade & pinned
+        if blocked:
+            label = ", ".join(names.get(i, str(i)) for i in sorted(blocked))
+            raise ServiceError(
+                f"Cannot exclude {names.get(other, other)} while it "
+                f"(or a dependent) is pinned in the pool: {label}.",
+                409,
+            )
+        for i in cascade:
+            if i not in drop:
+                drop.append(i)
+    if not drop:
+        return []
+    remaining = [r for r in current if int(r["id"]) not in set(drop)]
+    conn.execute("DELETE FROM pool_items")
+    for idx, row in enumerate(remaining):
+        conn.execute(
+            "INSERT INTO pool_items (project_id, position, pinned) VALUES (?, ?, ?)",
+            (int(row["id"]), idx, int(row["pinned"])),
+        )
+    return drop
+
+
 def _validate_project(name: str, cost: float, outcome: float) -> str:
     name = (name or "").strip()
     if not name or len(name) > 80:
@@ -633,6 +857,7 @@ def create_project(
     cost_currency: str,
     outcome: float,
     depends_on: list[int],
+    excludes: list[int] | None = None,
 ) -> int:
     settings = get_settings(conn)
     name = _validate_project(name, cost, outcome)
@@ -646,6 +871,7 @@ def create_project(
     for dep in depends_on:
         if dep not in existing:
             raise ServiceError("Dependency must be an existing project.")
+    excludes = _norm_id_list(excludes)
     if conn.execute("SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone():
         raise ServiceError("A project with that name already exists.")
     now = utcnow()
@@ -681,6 +907,8 @@ def create_project(
                 "INSERT INTO project_dependencies (project_id, depends_on_id) VALUES (?, ?)",
                 (pid, dep),
             )
+        excludes = _assert_exclusions_ok(conn, pid, excludes, depends_on)
+        _replace_exclusions(conn, pid, excludes)
         conn.execute("UPDATE settings SET last_cost_currency = ? WHERE id = 1", (cost_currency,))
         conn.execute("COMMIT")
         return pid
@@ -703,7 +931,8 @@ def update_project(
     cost_currency: str,
     outcome: float,
     depends_on: list[int],
-) -> None:
+    excludes: list[int] | None = None,
+) -> dict:
     if get_project(conn, project_id) is None:
         raise ServiceError("Project not found.", 404)
     settings = get_settings(conn)
@@ -725,7 +954,11 @@ def update_project(
         raise ServiceError("A project with that name already exists.")
     if _would_cycle(conn, project_id, depends_on):
         raise ServiceError("That dependency set would create a cycle.")
+    write_excludes = excludes is not None
+    if write_excludes:
+        excludes = _assert_exclusions_ok(conn, project_id, excludes, depends_on)
     now = utcnow()
+    ejected: list[int] = []
     try:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
@@ -754,11 +987,18 @@ def update_project(
                 "INSERT INTO project_dependencies (project_id, depends_on_id) VALUES (?, ?)",
                 (project_id, dep),
             )
+        if write_excludes:
+            _replace_exclusions(conn, project_id, excludes)
+            ejected = _eject_exclusives_from_pool(conn, project_id, excludes)
         conn.execute("UPDATE settings SET last_cost_currency = ? WHERE id = 1", (cost_currency,))
         conn.execute("COMMIT")
+        return _eject_report(conn, ejected, [])
     except ServiceError:
         conn.execute("ROLLBACK")
         raise
+    except sqlite3.IntegrityError as exc:
+        conn.execute("ROLLBACK")
+        raise ServiceError("Could not update project.") from exc
 
 
 def delete_project(conn: sqlite3.Connection, project_id: int) -> None:
@@ -828,7 +1068,7 @@ def update_budget(conn: sqlite3.Connection, amount: float, currency: str) -> dic
         raise ServiceError("Could not update budget.") from exc
 
 
-def update_rates(conn: sqlite3.Connection, usd_per_sgd: float, myr_per_sgd: float) -> None:
+def update_rates(conn: sqlite3.Connection, usd_per_sgd: float, myr_per_sgd: float) -> dict:
     if usd_per_sgd <= 0 or myr_per_sgd <= 0:
         raise ServiceError("Conversion rates must be positive.")
     try:
@@ -839,8 +1079,12 @@ def update_rates(conn: sqlite3.Connection, usd_per_sgd: float, myr_per_sgd: floa
         )
         settings = get_settings(conn)
         refresh_project_costs(conn, settings)
-        rebalance_pool(conn, float(settings["budget_sgd"]))
+        ejected = rebalance_pool(conn, float(settings["budget_sgd"]))
         conn.execute("COMMIT")
+        return {
+            "ejected_ids": ejected,
+            "ejected_names": [names_by_id(conn).get(i, str(i)) for i in ejected],
+        }
     except ServiceError:
         conn.execute("ROLLBACK")
         raise
@@ -977,7 +1221,7 @@ def _transitive_dependents(start: int, dependents: dict[int, list[int]]) -> set[
     return _transitive_deps(start, dependents)
 
 
-def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
+def add_to_pool(conn: sqlite3.Connection, project_id: int) -> dict:
     project = get_project(conn, project_id)
     if project is None:
         raise ServiceError("Project not found.", 404)
@@ -986,19 +1230,26 @@ def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
     current = pool_rows(conn)
     current_ids = [int(r["id"]) for r in current]
     if project_id in current_ids:
-        return
+        return _eject_report(conn, [], [])
+    exclusive_ids: list[int] = []
+    budget_ids: list[int] = []
     missing = [d for d in _transitive_deps(project_id, deps) if d not in current_ids]
     if missing:
         for dep_id in list(missing):
-            add_to_pool(conn, dep_id)
+            sub = add_to_pool(conn, dep_id)
+            for i in sub.get("exclusive_ids", []):
+                if i not in exclusive_ids:
+                    exclusive_ids.append(i)
+            for i in sub.get("budget_ids", []):
+                if i not in budget_ids:
+                    budget_ids.append(i)
         # Re-read pool after recursion
         current = pool_rows(conn)
         current_ids = [int(r["id"]) for r in current]
         # Check if the requested project is now already in pool
         if project_id in current_ids:
-            return
+            return _eject_report(conn, exclusive_ids, budget_ids)
 
-    by_id = {int(r["id"]): r for r in list_projects(conn)}
     metric = settings["pool_eject_metric"]
     budget = float(settings["budget_sgd"])
 
@@ -1025,7 +1276,28 @@ def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
     def total(items: list[dict]) -> float:
         return sum(i["cost"] for i in items)
 
-    ejected: list[int] = []
+    excl = set(exclusions_map(conn).get(project_id, []))
+    depmap = dependents_map(conn)
+    names = names_by_id(conn)
+    by_id = {m["id"]: m for m in members}
+    for other in list(excl):
+        if other not in by_id:
+            continue
+        cascade = {other} | {
+            did for did in _transitive_dependents(other, depmap) if did in by_id
+        }
+        if any(by_id[i]["pinned"] for i in cascade if i in by_id):
+            raise ServiceError(
+                f"Cannot add {project['name']}: it cannot coexist with pinned "
+                f"{names.get(other, other)}.",
+                409,
+            )
+        members = [m for m in members if m["id"] not in cascade]
+        for i in cascade:
+            if i not in exclusive_ids:
+                exclusive_ids.append(i)
+        by_id = {m["id"]: m for m in members}
+
     while total(members) > budget + EPS:
         candidates = [m for m in members if m["id"] != project_id and not m["pinned"]]
         if not candidates:
@@ -1035,7 +1307,8 @@ def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
             )
         victim = min(candidates, key=lambda m: (m["value"], -m["position"], -m["id"]))
         members = [m for m in members if m["id"] != victim["id"]]
-        ejected.append(victim["id"])
+        if victim["id"] not in budget_ids:
+            budget_ids.append(victim["id"])
 
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -1047,6 +1320,9 @@ def add_to_pool(conn: sqlite3.Connection, project_id: int) -> None:
                 (member["id"], idx, pinned),
             )
         conn.execute("COMMIT")
+        exclusive_set = set(exclusive_ids)
+        budget_ids = [i for i in budget_ids if i not in exclusive_set]
+        return _eject_report(conn, exclusive_ids, budget_ids)
     except ServiceError:
         conn.execute("ROLLBACK")
         raise
@@ -1110,6 +1386,15 @@ def toggle_pin(conn: sqlite3.Connection, project_id: int) -> None:
 def apply_optimize_to_pool(conn: sqlite3.Connection, selected_ids: list[int]) -> None:
     projects = list_projects(conn)
     by_id = {int(p["id"]): p for p in projects}
+    chosen = {int(i) for i in selected_ids}
+    excl = exclusions_map(conn)
+    for pid in chosen:
+        for other in excl.get(pid, []):
+            if other in chosen:
+                raise ServiceError(
+                    "Selection includes mutually exclusive projects.",
+                    409,
+                )
     settings = get_settings(conn)
     metric = settings["optimize_metric"]
     ranked = sorted(
@@ -1139,6 +1424,7 @@ def optimize_now(conn: sqlite3.Connection, metric: str | None = None) -> dict:
         dependency_pairs(conn),
         float(settings["budget_sgd"]),
         settings["optimize_metric"],
+        exclusion_pairs(conn),
     )
 
 

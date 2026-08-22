@@ -45,7 +45,7 @@ Also wired `request.state.is_hx` from the `HX-Request` header. `POST /projects` 
 - `test_htmx_delete_returns_list_fragment` — `HX-Request: true` delete is 200 fragment, not 303
 - `test_pool_add_returns_both_columns` — now asserts 200 + `#available-list` + `#pool-list`
 
-**Re-verified 2026-08-17** (live DB still has 11 pool rows including “Air Conditioning”):
+**Re-verified 2026-08-17** (live DB still has 11 pool rows):
 
 ```
 /            307 → /projects

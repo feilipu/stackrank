@@ -3,7 +3,7 @@
 Single-user local app for ranking sub-projects under a budget. Three complementary modes:
 
 1. **Automatic optimize** — exact 0/1 knapsack over ancestor-closed sets (outcome, Elo, or a blend).
-2. **In-budget success pool** — drag or click projects into a pool that never exceeds the budget. Lowest-metric unpinned items are ejected; pinned items stay.
+2. **In-budget success pool** — drag or click projects into a pool that never exceeds the budget. Lowest-metric unpinned items are ejected; pinned items stay. Sub-projects can **exclude** each other (option A or B, not both).
 3. **Elo beauty contest** — pairwise A/B comparisons (K = 32) with a live leaderboard.
 
 Money is stored in **SGD**. USD and MYR are shown using configurable “foreign per 1 SGD” rates. You can type the budget (or a project cost) in any of the three currencies.

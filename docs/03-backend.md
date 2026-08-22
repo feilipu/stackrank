@@ -27,7 +27,7 @@ Shared chrome in `base.html`: editable overall project name, nav tabs, **Export*
 | Method | Path | Body | Result |
 |---|---|---|---|
 | GET | `/projects` | | full page |
-| POST | `/projects` | form: name, description, cost, cost_currency, outcome, depends_on (multi) | redirect or fragment list |
+| POST | `/projects` | form: name, description, cost, cost_currency, outcome, depends_on (multi), excludes (multi) | redirect or fragment list |
 | GET | `/projects/{id}/edit` | | edit form fragment |
 | POST | `/projects/{id}` | same as create | replace row + close form |
 | POST | `/projects/{id}/delete` | | refresh list |
@@ -64,7 +64,9 @@ Last optimize result should be persisted (not only the `LAST_OPTIMIZE` module gl
 
 All pool POSTs return `_partials/pool_board.html` (both columns + totals) so HTMX can swap `#pool-board`.
 
-On block (missing deps / dependents / cannot fit): 409 + error fragment.
+On block (missing deps / dependents / cannot fit / pinned exclusive): 409 + error fragment.
+
+Adding a project that **excludes** one already in the pool ejects that alternative (and its unpinned pooled dependents) and OOB-swaps `#flash` naming what left. Budget ejections on add or on `POST /settings/budget` do the same.
 
 ## Contest routes
 

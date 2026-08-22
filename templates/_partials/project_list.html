@@ -30,7 +30,7 @@
      <button type="submit" class="rounded-md border px-3 py-1.5 text-sm">Apply</button>
    </form>
   <form id="new-project-form" class="mb-6 rounded-md border bg-white p-4 shadow-sm"
-        hx-post="/projects" hx-swap="innerHTML" hx-target="#project-list" method="post">
+        hx-post="/projects" hx-target="#project-list" hx-select="#project-list" hx-swap="outerHTML" method="post">
     <h3 class="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Add sub-project</h3>
     <div class="grid gap-3 md:grid-cols-2">
       <label class="text-sm">Name
@@ -56,17 +56,9 @@
       <label class="text-sm">Outcome
         <input type="number" step="0.01" min="0.01" required name="outcome" class="mt-0.5 block w-full rounded border px-2 py-1">
       </label>
-      <fieldset class="md:col-span-2">
-        <legend class="text-xs font-medium uppercase tracking-wide text-slate-400">Depends on</legend>
-        <div class="mt-1 grid gap-1 md:grid-cols-2">
-          {% for opt in project_options %}
-            <label class="text-sm">
-              <input type="checkbox" name="depends_on" value="{{ opt.id }}">
-              {{ opt.name }}
-            </label>
-          {% endfor %}
-        </div>
-      </fieldset>
+      <div class="md:col-span-2">
+        {% include "_partials/rel_selects.html" %}
+      </div>
     </div>
     <button type="submit" class="mt-3 rounded-md bg-indigo-700 px-4 py-1.5 text-sm font-medium text-white shadow">
       Add sub-project
@@ -110,6 +102,9 @@
       </dl>
       {% if row.dependencies %}
         <p class="mt-2 text-xs text-slate-500">Depends on: {{ row.dependencies | join(", ") }}</p>
+      {% endif %}
+      {% if row.exclusions %}
+        <p class="excl-note mt-1 text-xs">Excludes: {{ row.exclusions | join(", ") }}</p>
       {% endif %}
       {% include "_partials/dep_sketch.html" %}
       {% if row.in_pool %}

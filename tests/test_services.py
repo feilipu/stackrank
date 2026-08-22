@@ -9,6 +9,7 @@ from stackrank.services import (
     add_to_pool,
     create_project,
     delete_project,
+    exclusions_map,
     get_project,
     pool_rows,
     reorder_pool,
@@ -29,7 +30,7 @@ def assert_service_error(exc_info, status=None):
         assert got == status, f"ServiceError status={got}; expected {status}"
 
 
-def new_project(conn, name, cost=100, outcome=30.0, depends_on=None):
+def new_project(conn, name, cost=100, outcome=30.0, depends_on=None, excludes=None):
     return create_project(
         conn,
         name=name,
@@ -38,6 +39,7 @@ def new_project(conn, name, cost=100, outcome=30.0, depends_on=None):
         cost_currency="SGD",
         outcome=outcome,
         depends_on=list(depends_on or []),
+        excludes=list(excludes or []),
     )
 
 
@@ -338,3 +340,293 @@ def test_rate_change_recomputes_cost_sgd_from_entered(conn):
     assert float(row["cost_amount"]) == 74
     assert row["cost_currency"] == "USD"
     assert abs(float(row["cost_sgd"]) - 74) < 1e-6
+
+
+def test_create_stores_symmetric_exclusions(conn):
+    a = new_project(conn, "Option A")
+    b = new_project(conn, "Option B", excludes=[a])
+    mapping = exclusions_map(conn)
+    assert a in mapping[b] and b in mapping[a]
+
+
+def test_update_exclude_mirrors_onto_peer(conn):
+    a = new_project(conn, "PeerA")
+    b = new_project(conn, "PeerB")
+    update_project(
+        conn,
+        int(a),
+        name="PeerA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[int(b)],
+    )
+    mapping = exclusions_map(conn)
+    assert b in mapping[a] and a in mapping[b]
+    pairs = {
+        (int(r["project_id"]), int(r["excludes_id"]))
+        for r in conn.execute("SELECT project_id, excludes_id FROM project_exclusions")
+    }
+    assert (a, b) in pairs and (b, a) in pairs
+
+
+def _exclusion_pairs(conn):
+    return {
+        (int(r["project_id"]), int(r["excludes_id"]))
+        for r in conn.execute("SELECT project_id, excludes_id FROM project_exclusions")
+    }
+
+
+def test_clearing_exclude_drops_both_sides(conn):
+    a = new_project(conn, "ClearA")
+    b = new_project(conn, "ClearB")
+    update_project(
+        conn,
+        int(a),
+        name="ClearA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[int(b)],
+    )
+    update_project(
+        conn,
+        int(a),
+        name="ClearA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[],
+    )
+    mapping = exclusions_map(conn)
+    assert mapping.get(a, []) == []
+    assert mapping.get(b, []) == []
+    assert _exclusion_pairs(conn) == set()
+
+
+def test_removing_one_exclude_keeps_the_other_pair(conn):
+    a = new_project(conn, "KeepA")
+    b = new_project(conn, "DropB")
+    c = new_project(conn, "KeepC")
+    update_project(
+        conn,
+        int(a),
+        name="KeepA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[int(b), int(c)],
+    )
+    update_project(
+        conn,
+        int(a),
+        name="KeepA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[int(c)],
+    )
+    mapping = exclusions_map(conn)
+    assert set(mapping.get(a, [])) == {c}
+    assert set(mapping.get(c, [])) == {a}
+    assert mapping.get(b, []) == []
+    pairs = _exclusion_pairs(conn)
+    assert (a, c) in pairs and (c, a) in pairs
+    assert (a, b) not in pairs and (b, a) not in pairs
+
+
+def test_clearing_exclude_from_peer_form_clears_both(conn):
+    a = new_project(conn, "FormA")
+    b = new_project(conn, "FormB")
+    update_project(
+        conn,
+        int(a),
+        name="FormA",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[int(b)],
+    )
+    update_project(
+        conn,
+        int(b),
+        name="FormB",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=30.0,
+        depends_on=[],
+        excludes=[],
+    )
+    mapping = exclusions_map(conn)
+    assert mapping.get(a, []) == []
+    assert mapping.get(b, []) == []
+
+
+def test_one_way_exclusion_row_still_maps_both_sides(conn):
+    a = new_project(conn, "OneWayA")
+    b = new_project(conn, "OneWayB")
+    conn.execute("DELETE FROM project_exclusions")
+    conn.execute(
+        "INSERT INTO project_exclusions (project_id, excludes_id) VALUES (?, ?)",
+        (a, b),
+    )
+    mapping = exclusions_map(conn)
+    assert b in mapping[a] and a in mapping[b]
+
+
+def test_apply_schema_persists_missing_reverse_exclusion(conn):
+    from stackrank.db import apply_schema
+
+    a = new_project(conn, "MirrorA")
+    b = new_project(conn, "MirrorB")
+    conn.execute("DELETE FROM project_exclusions")
+    conn.execute(
+        "INSERT INTO project_exclusions (project_id, excludes_id) VALUES (?, ?)",
+        (a, b),
+    )
+    apply_schema(conn)
+    pairs = {
+        (int(r["project_id"]), int(r["excludes_id"]))
+        for r in conn.execute("SELECT project_id, excludes_id FROM project_exclusions")
+    }
+    assert (a, b) in pairs and (b, a) in pairs
+
+
+def test_cannot_exclude_self(conn):
+    a = new_project(conn, "SoloEx")
+    with pytest.raises(ServiceError) as exc_info:
+        update_project(
+            conn,
+            int(a),
+            name="SoloEx",
+            description="",
+            cost=100,
+            cost_currency="SGD",
+            outcome=30.0,
+            depends_on=[],
+            excludes=[int(a)],
+        )
+    assert_service_error(exc_info)
+    assert exclusions_map(conn).get(int(a), []) == []
+
+
+def test_cannot_exclude_a_dependency(conn):
+    base = new_project(conn, "Base")
+    with pytest.raises(ServiceError) as exc_info:
+        new_project(conn, "Child", depends_on=[base], excludes=[base])
+    assert_service_error(exc_info)
+
+
+def test_cannot_exclude_a_dependent(conn):
+    base = new_project(conn, "KeepBase")
+    child = new_project(conn, "ChildOfBase", depends_on=[base])
+    with pytest.raises(ServiceError) as exc_info:
+        update_project(
+            conn,
+            int(base),
+            name="KeepBase",
+            description="",
+            cost=100,
+            cost_currency="SGD",
+            outcome=30.0,
+            depends_on=[],
+            excludes=[int(child)],
+        )
+    assert_service_error(exc_info)
+
+
+def test_cannot_depend_on_exclusive_pair(conn):
+    a = new_project(conn, "AltA")
+    b = new_project(conn, "AltB", excludes=[a])
+    with pytest.raises(ServiceError) as exc_info:
+        new_project(conn, "NeedsBoth", depends_on=[a, b])
+    assert_service_error(exc_info)
+
+
+def test_add_exclusive_pushes_the_other_out(conn):
+    update_budget(conn, 1000, "SGD")
+    a = new_project(conn, "Tile A", cost=100, outcome=40.0)
+    b = new_project(conn, "Tile B", cost=100, outcome=50.0, excludes=[a])
+    add_to_pool(conn, a)
+    result = add_to_pool(conn, b)
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert b in ids and a not in ids
+    assert a in result["exclusive_ids"]
+    assert "Tile A" in result["exclusive_names"]
+    assert result["budget_ids"] == []
+
+
+def test_add_exclusive_blocked_when_other_is_pinned(conn):
+    update_budget(conn, 1000, "SGD")
+    a = new_project(conn, "Pinned Alt", cost=100, outcome=40.0)
+    b = new_project(conn, "New Alt", cost=100, outcome=50.0, excludes=[a])
+    add_to_pool(conn, a)
+    toggle_pin(conn, a)
+    with pytest.raises(ServiceError) as exc_info:
+        add_to_pool(conn, b)
+    assert_service_error(exc_info, status=409)
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert a in ids and b not in ids
+
+
+def test_add_exclusive_also_ejects_dependents(conn):
+    update_budget(conn, 1000, "SGD")
+    a = new_project(conn, "AltBase", cost=100, outcome=40.0)
+    child = new_project(conn, "AltChild", cost=100, outcome=60.0, depends_on=[a])
+    b = new_project(conn, "OtherAlt", cost=100, outcome=50.0, excludes=[a])
+    add_to_pool(conn, a)
+    add_to_pool(conn, child)
+    result = add_to_pool(conn, b)
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert b in ids
+    assert a not in ids and child not in ids
+    assert a in result["exclusive_ids"] and child in result["exclusive_ids"]
+
+
+def test_add_to_pool_reports_budget_ejections(conn):
+    set_pool_metric(conn, "outcome")
+    update_budget(conn, 150, "SGD")
+    low = new_project(conn, "BudgetLow", cost=100, outcome=10.0)
+    high = new_project(conn, "BudgetHigh", cost=100, outcome=90.0)
+    add_to_pool(conn, low)
+    result = add_to_pool(conn, high)
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert high in ids and low not in ids
+    assert low in result["budget_ids"]
+    assert "BudgetLow" in result["budget_names"]
+    assert result["exclusive_ids"] == []
+
+
+def test_update_exclude_ejects_pooled_alternative(conn):
+    update_budget(conn, 1000, "SGD")
+    a = new_project(conn, "PooledA", cost=100, outcome=40.0)
+    b = new_project(conn, "PooledB", cost=100, outcome=50.0)
+    add_to_pool(conn, a)
+    add_to_pool(conn, b)
+    result = update_project(
+        conn,
+        int(b),
+        name="PooledB",
+        description="",
+        cost=100,
+        cost_currency="SGD",
+        outcome=50.0,
+        depends_on=[],
+        excludes=[int(a)],
+    )
+    ids = {int(r["id"]) for r in pool_rows(conn)}
+    assert b in ids and a not in ids
+    assert "PooledA" in result["exclusive_names"]

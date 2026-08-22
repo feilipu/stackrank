@@ -68,6 +68,26 @@ Invariants (enforced in service layer, tested):
 - No cycles (DFS / topological failure rejects the write)
 - Both IDs exist
 
+## `project_exclusions`
+
+Mutually exclusive alternatives (option A or option B, not both). Stored as symmetric pairs `(A,B)` and `(B,A)`. Saving an exclude on one sub-project writes the reverse on the peer; clearing it deletes both rows, so both cards and both edit forms lose the `Excludes:` note together. Missing reverse rows are filled on schema apply.
+
+| Column | Type | Notes |
+|---|---|---|
+| project_id | INTEGER NOT NULL | one alternative |
+| excludes_id | INTEGER NOT NULL | the other alternative |
+| PRIMARY KEY (project_id, excludes_id) | | |
+| CHECK (project_id != excludes_id) | | |
+| FOREIGN KEY … ON DELETE CASCADE | | |
+
+Invariants (enforced in service layer, tested):
+
+- `project_id != excludes_id`
+- Both IDs exist
+- An exclusion must not overlap a dependency in either direction (including transitive)
+- No project may depend (directly or transitively) on both sides of an exclusive pair
+- The success pool never contains both sides of a pair: adding one ejects the other and its unpinned pooled dependents. A pinned exclusive blocks the add (409).
+
 ## `pool_items`
 
 The current In-Budget Success Pool. Order is explicit.
@@ -82,6 +102,7 @@ The pool must always satisfy:
 
 - `sum(cost_sgd) <= budget_sgd` (within 1e-6)
 - If A is in the pool and A depends on B, B is also in the pool
+- If A excludes B, they are never both in the pool
 
 ## `contest_matches`
 
@@ -129,6 +150,8 @@ Budget 250_000 SGD is tight enough that optimize, pool, and Elo disagree in inte
 | name unique, non-empty | create/update project |
 | no self-dependency | dependency write |
 | no cycles | dependency write |
+| no self-exclusion | exclusion write |
+| exclusion vs dependency overlap | exclusion / dependency write |
 | budget > 0 | settings write |
 | rates > 0 | settings write |
 | delete project | cascade deps, pool, matches; if contest pair uses it, end contest |

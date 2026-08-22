@@ -1,0 +1,34 @@
+{% set rel_self = editing|default(0)|int %}
+{% set rel_deps = selected|default([]) %}
+{% set rel_excl = selected_excludes|default([]) %}
+<div class="rel-selects mt-1 grid gap-3 md:grid-cols-2">
+  <fieldset class="min-w-0">
+    <legend class="text-sm">Depends on</legend>
+    <div class="rel-select-box mt-0.5">
+      {% for opt in project_options %}
+        {% if opt.id != rel_self %}
+          <label class="rel-select-item">
+            <input type="checkbox" name="depends_on" value="{{ opt.id }}"
+                   {{ "checked" if opt.id in rel_deps else "" }}>
+            <span>{{ opt.name }}</span>
+          </label>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+  <fieldset class="min-w-0">
+    <legend class="text-sm">Excludes</legend>
+    <div class="rel-select-box mt-0.5">
+      {% for opt in project_options %}
+        {% if opt.id != rel_self %}
+          <label class="rel-select-item">
+            <input type="checkbox" name="excludes" value="{{ opt.id }}"
+                   {{ "checked" if opt.id in rel_excl else "" }}>
+            <span>{{ opt.name }}</span>
+          </label>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <p class="mt-0.5 text-xs text-slate-400">Alternatives that cannot both be in the build.</p>
+  </fieldset>
+</div>

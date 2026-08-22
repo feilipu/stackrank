@@ -1,5 +1,5 @@
 <article id="project-{{ editing }}" class="mb-3 rounded-md border bg-slate-50 p-4 shadow-sm">
-  <form hx-post="/projects/{{ editing }}" hx-swap="innerHTML" hx-target="#project-list">
+  <form hx-post="/projects/{{ editing }}" hx-target="#project-list" hx-select="#project-list" hx-swap="outerHTML">
     <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-slate-600">Edit {{ name }}</h3>
     <div class="grid gap-3 md:grid-cols-2">
       <label class="text-sm">Name
@@ -30,20 +30,9 @@
                class="mt-0.5 w-full rounded border px-2 py-1.5">
       </label>
     </div>
-    <fieldset class="mt-3">
-      <legend class="text-xs font-medium uppercase text-slate-400">Depends on</legend>
-      <div class="mt-1 grid gap-1 md:grid-cols-2">
-        {% for proj in project_options %}
-          {% if proj.id != editing %}
-            <label class="text-sm">
-              <input type="checkbox" name="depends_on" value="{{ proj.id }}"
-                     {{ "checked" if proj.id in selected else "" }}>
-              {{ proj.name }}
-            </label>
-          {% endif %}
-        {% endfor %}
-      </div>
-    </fieldset>
+    <div class="mt-3">
+      {% include "_partials/rel_selects.html" %}
+    </div>
     <div class="mt-4 flex gap-3">
       <button type="submit" class="rounded bg-indigo-700 px-3 py-1.5 text-sm font-medium text-white">Save</button>
       <a href="/projects" class="rounded border px-3 py-1.5 text-sm">Cancel</a>

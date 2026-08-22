@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS project_dependencies (
     FOREIGN KEY (depends_on_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS project_exclusions (
+    project_id INTEGER NOT NULL,
+    excludes_id INTEGER NOT NULL,
+    PRIMARY KEY (project_id, excludes_id),
+    CHECK (project_id != excludes_id),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (excludes_id) REFERENCES projects(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS pool_items (
     project_id INTEGER PRIMARY KEY,
     position INTEGER NOT NULL,
@@ -133,6 +142,7 @@ def apply_schema(conn: sqlite3.Connection) -> None:
              "ALTER TABLE settings ADD COLUMN theme "
              "TEXT NOT NULL DEFAULT 'system'"
          )
+    _mirror_exclusion_pairs(conn)
     row = conn.execute("SELECT id FROM settings WHERE id = 1").fetchone()
     if row is None:
         conn.execute(
@@ -144,6 +154,20 @@ def apply_schema(conn: sqlite3.Connection) -> None:
             ) VALUES (1, 250000, 'SGD', 0.74, 3.45, 'outcome', 'elo', 0, NULL, NULL, 0, 0)
             """
         )
+
+
+def _mirror_exclusion_pairs(conn: sqlite3.Connection) -> None:
+    """If A excludes B, persist B excludes A as well."""
+    rows = list(conn.execute("SELECT project_id, excludes_id FROM project_exclusions"))
+    have = {(int(r["project_id"]), int(r["excludes_id"])) for r in rows}
+    for a, b in list(have):
+        if a == b or (b, a) in have:
+            continue
+        conn.execute(
+            "INSERT INTO project_exclusions (project_id, excludes_id) VALUES (?, ?)",
+            (b, a),
+        )
+        have.add((b, a))
 
 
 def ensure_seeded(conn: sqlite3.Connection) -> None:

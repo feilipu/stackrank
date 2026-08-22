@@ -51,7 +51,8 @@ S$12,000  ·  US$8,880  ·  RM41,400
 
 - Left or top: budget card (amount + currency select + rates editor).
 - Table/cards of projects: name, description, cost (3 fx), outcome, Elo, matches W-L, dependency chips.
-- “Add project” form: name, description, cost + currency, outcome, multi-select checkboxes of other projects for dependencies.
+- “Add project” form: name, description, cost + currency, outcome, and a two-column pair of `<select multiple>` lists for **Depends on** and **Excludes** (⌘/Ctrl-click). Lists scroll inside the widget so a long catalogue does not stretch the page.
+- Cards list “Excludes: …” next to “Depends on: …”.
 - Edit in place (HTMX swap a form into the row).
 - Delete with `hx-confirm`.
 
@@ -71,6 +72,7 @@ Two equal columns on desktop, stacked on mobile (`md:grid-cols-2`).
 - Sticky totals bar: cost, remaining, outcome, Elo, count.
 - Metric select for auto-eject.
 - Over-budget can appear after a budget shrink when pins block eject (flash + Over-by totals). Blocked actions still flash in #flash.
+- Adding an exclusive alternative, shrinking the budget, or a rate change that forces ejections OOB-swaps `#flash` with the names that left the pool.
 - Site tabs are sticky (`site-top`). On the Pool tab, `#pool-sticky` under the tabs is 50/50 Budget+FX (left) and the duck pool (right); Auto-eject metric sits under that row. Narrow viewports stack; Budget+FX keep a min width of 18rem.
 - `#pool-fill` is HTML water. Height is `calc(var(--pool-fill-ratio) * 100%)` from the basin floor (side view). At 100% the water and duck sit at the top of the frame. Empty interior is transparent. Caption is `N% full`. Over-budget tints the water red. HTMX OOB-swaps `#pool-fill`.
 

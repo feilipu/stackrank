@@ -19,6 +19,7 @@ Provide `tests/conftest.py` with:
 6. Cycle in input raises a clear error (optimizer assumes DAG; service rejects earlier — still guard).
 7. Metric `elo` vs `outcome` can change the winner (construct 2–3 projects).
 8. Result is ancestor-closed and `total_cost <= budget`.
+9. Exclusive pair: both fit the budget but only one is selected (higher metric).
 
 ## Unit — Elo (`tests/test_elo.py`)
 
@@ -37,6 +38,7 @@ Provide `tests/conftest.py` with:
 1. Adding a project whose cost exceeds remaining ejects the lowest unpinned metric project.
 2. Pinned project is not ejected; if nothing else can go, add is rejected.
 3. Missing dependency blocks add.
+3b. Adding B when A excludes B ejects A (and A’s unpinned dependents); pinned A is a 409. Budget and exclusive ejections are named in the add result.
 4. Budget shrink ejects lowest unpinned; pinned over-budget stays and reports over_budget; ejecting a dependency also ejects its dependent.
 5. Removing a dependency while a dependent is still pooled is blocked.
 6. Reorder persists positions.

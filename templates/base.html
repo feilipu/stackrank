@@ -38,7 +38,7 @@
       {code: "...", swap: true}
     ];
   </script>
-  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v=pool-frames" />
+  <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}?v=rel-checks" />
   {% block extra_head %}{% endblock %}
 </head>
 <body class="min-h-full bg-slate-50 text-slate-900 antialiased">
@@ -67,6 +67,6 @@
   </main>
 
   <script src="{{ url_for('static', path='vendor/Sortable.min.js') }}"></script>
-  <script src="{{ url_for('static', path='app.js') }}"></script>
+  <script src="{{ url_for('static', path='app.js') }}?v=rel-checks"></script>
 </body>
 </html>

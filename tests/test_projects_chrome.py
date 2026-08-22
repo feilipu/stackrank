@@ -117,6 +117,10 @@ def test_edit_form_shows_entered_usd_not_sgd(client, conn):
     assert resp.status_code == 200
     assert 'name="cost"' in resp.text
     assert 'value="74.00"' in resp.text
+    assert 'name="depends_on"' in resp.text
+    assert 'name="excludes"' in resp.text
+    assert "rel-selects" in resp.text
+    assert 'type="checkbox" name="excludes"' in resp.text
     assert 'value="USD" selected' in resp.text
     assert "100.00" not in resp.text
     client.post(

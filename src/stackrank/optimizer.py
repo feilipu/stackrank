@@ -84,6 +84,7 @@ def optimize(
     dependencies: list[tuple[int, int]],
     budget_sgd: float,
     metric: str = "outcome",
+    exclusions: list[tuple[int, int]] | None = None,
 ) -> dict:
     if not projects:
         return {
@@ -119,6 +120,11 @@ def optimize(
     }
     index = {pid: bit for bit, pid in enumerate(ids)}
     reverse = {bit: pid for pid, bit in index.items()}
+    blocked: dict[int, set[int]] = defaultdict(set)
+    for left, right in exclusions or []:
+        if left in index and right in index and left != right:
+            blocked[int(left)].add(int(right))
+            blocked[int(right)].add(int(left))
 
     def bit_of(pid: int) -> int:
         return 1 << index[pid]
@@ -155,13 +161,19 @@ def optimize(
                 anc_ok = False
                 break
         if anc_ok:
-            rec(
-                pos + 1,
-                chosen | bit_of(pid),
-                chosen_cost + cost[pid],
-                chosen_value + value[pid],
-                chosen_elo + elo[pid],
-            )
+            excl_ok = True
+            for other in blocked.get(pid, ()):
+                if chosen & bit_of(other):
+                    excl_ok = False
+                    break
+            if excl_ok:
+                rec(
+                    pos + 1,
+                    chosen | bit_of(pid),
+                    chosen_cost + cost[pid],
+                    chosen_value + value[pid],
+                    chosen_elo + elo[pid],
+                )
 
     rec(0, 0, 0, 0.0, 0.0)
 
