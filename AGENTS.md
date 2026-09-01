@@ -1,8 +1,8 @@
 # Stackrank — Grok project rules
 
-## Qwen3.8 helper slices (mandatory)
+## Qwen3 helper slices (mandatory)
 
-Qwen3.8 (`qwen38-coder`) only gets **tiny slices**. Never hand it a spec, a whole file rewrite, or a multi-file feature in one prompt.
+Qwen3 14B (`qwen-coder`) only gets **tiny slices**. Never hand it a spec, a whole file rewrite, or a multi-file feature in one prompt.
 
 A slice is one of:
 
@@ -19,7 +19,7 @@ Hard limits for a Qwen prompt:
 - no “also update the docs / tests / related files”
 - no dumping `docs/06-budget-pool-rebalance.md` or other long specs into the worker
 
-If Qwen stalls (~15 min, no file write), cancel. Next: Gemma 4 (`gemma4-coder`) on the same tiny slice. If Gemma fails or corrupts files, cut the slice smaller and go back to Qwen. One helper at a time. Parent orchestrates only — do not do the helper’s work yourself when the user said not to.
+If Qwen stalls (~15 min, no file write), cancel. Next: Gemma 4 12B (`gemma-crew`) on the same tiny slice. If Gemma fails or corrupts files, cut the slice smaller and go back to Qwen. One helper at a time. Parent orchestrates only — do not do the helper’s work yourself when the user said not to.
 
 Qwen’s hard fail here was **output truncation** (`max_completion_tokens`), not a 128k context miss. Tiny slices keep both input and generation short. Gemma’s fail was over-reading (tens/hundreds of k input). Same rule: do not hand either the repo.
 
