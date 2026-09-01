@@ -1,12 +1,4 @@
-import pytest
-from .conftest import client
-
-
-def test_pool_add_invalid_ids():
-    # Test invalid pool ID -1
-    response = client.post("/pool/add/-1")
-    assert response.status != "500"
-
-    # Test invalid pool ID 999999
-    response = client.post("/pool/add/999999")
-    assert response.status != "500"
+def test_bad_pool_id(client):
+    for path in ("/pool/add/-1", "/pool/add/999999"):
+        r = client.post(path, follow_redirects=False)
+        assert r.status_code != 500
