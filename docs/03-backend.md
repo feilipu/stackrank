@@ -1,12 +1,14 @@
 # Backend (FastAPI)
 
+**Status (2026-09-18):** routes below are live on `stackrank.main:app`.
+
 App object: `stackrank.main:app`.
 
 On startup: ensure `data/` exists, apply schema, seed if empty.
 
 Templates from `templates/`. Static from `static/` at `/static`.
 
-HTML pages use Jinja. Mutations that the UI follows with HTMX return HTML fragments. JSON is only used where a fragment is awkward (optimize apply confirmation is still HTML).
+HTML pages use Jinja. Mutations that the UI follows with HTMX return HTML fragments.
 
 ## Pages (GET)
 
@@ -18,7 +20,9 @@ HTML pages use Jinja. Mutations that the UI follows with HTMX return HTML fragme
 | `/pool` | `pool.html` | two columns + totals |
 | `/contest` | `contest.html` | two cards + leaderboard |
 | `/export.html` | coloured HTML report (inline) | green = in pool, amber = excluded |
-| `/export.md` (alias `/export`) | markdown attachment | same grouping; HTML/CSS colour for previewers |
+| `/export.md` (alias `/export`) | markdown attachment | same grouping |
+| `/export/contractor.html` | accepted (in-pool) only | Total = pool cost in `?ccy=` |
+| `/export/contractor.md` | contractor markdown | same |
 
 Shared chrome in `base.html`: editable overall project name, nav tabs, **Export** link, budget chip (3 currencies), flash/error region (`#flash`).
 
@@ -26,16 +30,19 @@ Shared chrome in `base.html`: editable overall project name, nav tabs, **Export*
 
 | Method | Path | Body | Result |
 |---|---|---|---|
-| GET | `/projects` | | full page |
-| POST | `/projects` | form: name, description, cost, cost_currency, outcome, depends_on (multi), excludes (multi) | redirect or fragment list |
+| GET | `/projects` | query `q`, `pool`, `sort`, `dir` | full page |
+| POST | `/projects` | form: name, description, notes, cost, cost_currency, outcome, depends_on (multi), excludes (multi) | redirect or fragment list |
 | GET | `/projects/{id}/edit` | | edit form fragment |
 | POST | `/projects/{id}` | same as create | replace row + close form |
 | POST | `/projects/{id}/delete` | | refresh list |
 | POST | `/settings/budget` | amount, currency | refresh budget card |
 | POST | `/settings/rates` | usd_per_sgd, myr_per_sgd | refresh conversions |
 | POST | `/settings/name` | `name` (1–80 chars) | persist overall title; HTMX returns `#header-title` fragment, else 303 `/projects` |
-| GET | `/export.html` | | `text/html` inline; filename from slugged `project_name` |
-| GET | `/export.md` | | `text/markdown` attachment; filename from slugged `project_name` |
+| POST | `/settings/theme` | `theme`, optional `next` | `system` / `light` / `dark`; stay on allowlisted tab |
+| GET | `/export.html` | `?ccy=` | `text/html` inline; filename from slugged `project_name` |
+| GET | `/export.md` | `?ccy=` | `text/markdown` attachment; filename from slugged `project_name` |
+| GET | `/export/contractor.html` | `?ccy=` | in-pool only; Total in selected currency |
+| GET | `/export/contractor.md` | `?ccy=` | contractor markdown |
 
 Cost may be entered in SGD/USD/MYR; convert to SGD before store.
 
@@ -45,11 +52,9 @@ Validation errors: HTTP 422 with an HTML `_partials/errors.html` fragment (`HX-R
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/optimize` | last-run stored in memory only (module global is fine; also recompute on GET if `?autorun=1`) |
+| GET | `/optimize` | last run from `LAST_OPTIMIZE` and `settings.last_optimize_json` |
 | POST | `/optimize/run` | form `metric=outcome\|elo\|blend` — persist metric on settings, return results fragment |
-| POST | `/optimize/apply` | write selected ids into pool, then land on `/pool` (303 or `HX-Redirect`) |
-
-Last optimize result should be persisted (not only the `LAST_OPTIMIZE` module global) so GET `/optimize` still shows it after process restart.
+| POST | `/optimize/apply` | write selected ids into pool, then 303 / `HX-Redirect` to `/pool?applied=N` |
 
 ## Pool routes
 
@@ -64,7 +69,7 @@ Last optimize result should be persisted (not only the `LAST_OPTIMIZE` module gl
 
 All pool POSTs return `_partials/pool_board.html` (both columns + totals) so HTMX can swap `#pool-board`.
 
-On block (missing deps / dependents / cannot fit / pinned exclusive): 409 + error fragment.
+On block (cannot fit / dependents still pooled / pinned exclusive): 409 + error fragment. Missing deps are pulled in when they fit.
 
 Adding a project that **excludes** one already in the pool ejects that alternative (and its unpinned pooled dependents) and OOB-swaps `#flash` naming what left. Budget ejections on add or on `POST /settings/budget` do the same.
 
@@ -76,6 +81,7 @@ Adding a project that **excludes** one already in the pool ejects that alternati
 | POST | `/contest/start` | pick first pair |
 | POST | `/contest/choose` | `winner_id` |
 | POST | `/contest/skip` | |
+| POST | `/contest/undo` | restore Elo/W-L from last `contest_matches` row |
 | POST | `/contest/stop` | |
 | POST | `/contest/reset` | confirm via `confirm=yes` hidden field |
 

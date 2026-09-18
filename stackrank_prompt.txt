@@ -1,14 +1,50 @@
-Prompt for Grok Build — Project Stack Ranker (rebuild from current product)
+Prompt for Grok Build — Project Stack Ranker (shipped product spec)
 
-You are the parent orchestrator. Rebuild this application from this prompt and
-implementation_plan.md. Do not invent a second frontend, React, auth, live FX,
-or a Node build. Hand implementation to local helpers as **tiny slices only**
-(see implementation_plan.md). One helper at a time.
+This file is the product spec for the **already shipped** app on `main`.
+Do not rebuild unless the user asks. Use it to extend, debug, or document
+behaviour. Pair with implementation_plan.md only for a from-scratch rebuild.
 
-Local helpers (if available): `qwen38-coder` then `gemma4-coder` on the same
-slice. A slice is one function, one route handler, one template partial, one
-test, or one docs paragraph. One file path. One acceptance check. Never dump
-this whole prompt into a worker.
+You are the parent orchestrator. Do not invent a second frontend, React, auth,
+live FX, or a Node build. Hand implementation to local helpers as **tiny
+slices only** (see AGENTS.md and implementation_plan.md). One helper at a time.
+
+Local helpers (omlx on 127.0.0.1:11435): `qwen-coder` (Qwen3 14B) then
+`local-failover` / `gemma-crew` (Gemma 4 12B) on the same slice. A slice is
+one function, one route handler, one template partial, one test, or one docs
+paragraph. One file path. One acceptance check. Never dump this whole prompt
+into a worker. Do not start or restart omlx. Do not start Ollama.
+
+# Current status (2026-09-18)
+
+Shipped. Public git: https://github.com/feilipu/stackrank (`main`, MIT).
+Package version `stackrank.__version__` = `1.0.0`.
+
+| Item | State |
+|---|---|
+| Product | Five tabs: Projects, Optimize, Pool, Contest, Export. In use locally. |
+| Persistence | SQLite `data/stackrank.db` (gitignored). Override with `STACKRANK_DB`. |
+| Seed | 12 example projects only when `projects` is empty. Live DBs are not seeded. |
+| Friend launch | `./run.sh` / `./install.sh` — uvicorn 127.0.0.1:8000, **no `--reload`**. |
+| Share zip | `./scripts/pack.sh` → `dist/stackrank-YYYYMMDD.zip`. |
+| Tests | 105 collected. 104 pass. One known drift: `test_missing_dependency_blocks_add_to_pool` still expects a 409; add now **pulls missing deps** when they fit (see Pool). |
+| Helpers | Tiny slices via `qwen-coder` / `gemma-crew`. Parent orchestrates. |
+| Non-goals still | No React, auth, live FX, second frontend, systemd/launchd for uvicorn. |
+
+Do not commit live `data/*.db`. Do not publish a user’s project catalogue.
+
+Env (optional):
+
+- `STACKRANK_DB` — SQLite path (default `data/stackrank.db` next to the repo).
+- `STACKRANK_HOST` — default `127.0.0.1`.
+- `STACKRANK_PORT` — default `8000`.
+
+Detached uvicorn example:
+
+```
+STACKRANK_DB=/path/to/stackrank.db \
+  .venv/bin/python -m uvicorn stackrank.main:app --app-dir src \
+  --host 127.0.0.1 --port 8000
+```
 
 # Goal
 
@@ -38,6 +74,7 @@ Each sub-project has:
 - `cost_sgd` — derived at the current FX rates; used by knapsack, pool, Elo/S$
 - outcome (positive)
 - dependencies (zero or more other sub-projects; no self-edges, no cycles)
+- mutually exclusive **excludes** (option A or B, not both; stored symmetric)
 - Elo 1500, matches/wins/losses
 - created_at / updated_at ISO-8601 UTC
 
@@ -56,6 +93,8 @@ edit). Fallback SGD.
 - Budget form: amount + currency. Persist `budget_sgd` and `budget_currency`.
 - Every money display is a triple: `S$…  ·  US$…  ·  RM…`.
 - Default budget S$250,000.
+- Shrinking the budget ejects lowest-metric unpinned pool items; pinned over-
+  budget stays and flashes Over-by.
 
 ## Projects tab
 
@@ -73,16 +112,20 @@ edit). Fallback SGD.
 - Metric: outcome | elo | blend.
   `blend = 0.6 * outcome + 0.4 * (elo / 15)`.
 - Exact DP, costs rounded to integer SGD, n typically ≤ 30, ancestor-closed.
+  Exclusive pairs cannot both be selected.
 - Show selected, excluded, totals, remaining (3 currencies).
-- Apply writes the selected set into the pool (replace pool membership).
+- Apply writes the selected set into the pool (replace pool membership) and
+  redirects to `/pool?applied=N` (HTMX uses `HX-Redirect`).
 - Last run persisted in `settings.last_optimize_json` so GET survives restart.
 
 ## Pool tab
 
 - Available column vs In-Budget Success Pool. SortableJS + HTMX.
-- Add: if the new item does not fit, eject lowest unpinned by pool metric
-  (outcome | elo | blend). Pinned items never auto-eject. Missing dependencies
-  are pulled in when possible; otherwise 409.
+- Add: missing dependencies are **pulled in** when they fit; otherwise 409.
+  If the new item (plus pulled deps) does not fit, eject lowest unpinned by
+  pool metric (outcome | elo | blend). Pinned items never auto-eject.
+- Adding a project that excludes a pooled alternative ejects that alternative
+  and its unpinned pooled dependents; a pinned exclusive is 409.
 - Remove blocked if a pooled dependent still needs this project.
 - Pin toggle. Reorder persists positions (0 = highest priority).
 - Sticky site tabs. Under them, 50/50 sticky row: Budget+FX (left, min 18rem)
@@ -151,6 +194,7 @@ Same sticky chrome as other tabs.
 | Auth | None |
 
 `stackrank.main:app`, templates from `templates/`, static at `/static`.
+No `models.py`: rows are `sqlite3.Row` / dicts.
 
 # Target tree
 
@@ -169,19 +213,36 @@ install.sh
 src/stackrank/          # __init__, main, db, currency, elo, optimizer, services, seed
 templates/              # base + pages + _partials/
 static/                 # app.css, app.js, favicon.svg, vendor/
-tests/                  # conftest + unit/api
+tests/                  # conftest + unit/api + red-team
 scripts/                # pack.sh, optional smoke_tabs.py
-docs/                   # 00–10 design notes
+docs/                   # 00–10 design notes + handoff + implementation-summary
 data/.gitkeep           # db created at runtime
 ```
+
+# Tests (shipped)
+
+pytest from the repo root. Suite lives in `tests/`:
+
+- Unit: currency, Elo, optimizer (including exclusive pairs), pool fill math.
+- Service: CRUD, pool add/eject/pin/reorder, budget rebalance, symmetric excludes.
+- API/HTML: pages, HTMX fragments, export HTML/MD/contractor, chrome, theme.
+- Red-team: empty/huge/XSS/SQL-ish names, bad cost, bad pool/contest ids, budget SQL.
+
+Tests must never open the developer `data/stackrank.db`.
 
 # Non-goals
 
 No React, no Node build, no auth, no live FX, no second SPA, no systemd/launchd
 for the app server.
 
-# How to build
+# How to extend (not rebuild)
 
-Read implementation_plan.md. Work top to bottom. Each slice has one file and
-one acceptance check. Parent writes the next worker prompt; helpers never
-receive this whole document.
+Read AGENTS.md. One tiny slice per helper. Parent writes the next worker
+prompt; helpers never receive this whole document.
+
+If a from-scratch rebuild is explicitly requested, then read
+implementation_plan.md and work top to bottom. Each slice has one file and
+one acceptance check.
+
+Open polish (only if asked): n>24 ILP fallback, Tailwind FOUC, align
+`test_missing_dependency_blocks_add_to_pool` with pull-in-deps behaviour.

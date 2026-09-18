@@ -1,6 +1,6 @@
 # Budget shrink must rebalance the Success Pool
 
-Status: Ready to implement
+Status: Implemented (shipped on `main`, 2026-09-18). Historical spec.
 Date: 2026-08-19
 Author: parent (for qwen38-coder)
 

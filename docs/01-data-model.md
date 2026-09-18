@@ -1,6 +1,8 @@
 # Data model
 
-SQLite file: `data/stackrank.db` (created on first boot). All money is stored in **SGD**. Display conversion is derived.
+**Status (2026-09-18):** this schema is live. Existing files migrate via `ALTER TABLE` in `apply_schema`.
+
+SQLite file: `data/stackrank.db` (created on first boot; override `STACKRANK_DB`). All money is stored in **SGD**. Display conversion is derived.
 
 `PRAGMA foreign_keys = ON` on every connection.
 
@@ -21,6 +23,9 @@ SQLite file: `data/stackrank.db` (created on first boot). All money is stored in
 | contest_shown | INTEGER NOT NULL | Pairs presented this contest (including skips) |
 | contest_decided | INTEGER NOT NULL | Pairs with a winner this contest |
 | project_name | TEXT NOT NULL | Overall project title. Default `Untitled project`. 1–80 chars after trim. |
+| last_optimize_json | TEXT | Serialized last Optimize run so GET `/optimize` survives restart |
+| last_cost_currency | TEXT NOT NULL | Add-form default `SGD` / `USD` / `MYR` |
+| theme | TEXT NOT NULL | `system` / `light` / `dark`. Default `system` |
 
 On first boot insert the singleton with `budget_sgd = 250000`, `budget_currency = 'SGD'`, `project_name = 'Untitled project'`.
 
@@ -42,6 +47,7 @@ budget_sgd = amount_myr / myr_per_sgd
 | id | INTEGER PK AUTOINCREMENT | |
 | name | TEXT NOT NULL UNIQUE | trimmed, 1–80 chars |
 | description | TEXT | optional, may be empty |
+| notes | TEXT NOT NULL | optional, max 500 chars after trim; default `''` |
 | cost_sgd | REAL NOT NULL | must be > 0; derived from `cost_amount` at current rates |
 | cost_amount | REAL NOT NULL | the value the user typed |
 | cost_currency | TEXT NOT NULL | `SGD` / `USD` / `MYR` — the currency of `cost_amount` |

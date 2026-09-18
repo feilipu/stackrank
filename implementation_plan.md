@@ -1,13 +1,18 @@
 # Implementation plan — rebuild Project Stack Ranker
 
+**Status (2026-09-18):** the rebuild on `main` is done. This file is a
+historical DAG for a from-scratch rebuild only. Day-to-day work: read
+`stackrank_prompt.txt` and `docs/handoff.md`, then change the live tree.
+
 Parent document. Pair with `stackrank_prompt.txt` (the product). Rebuild in
-this order. **Do not hand this file to Qwen.** Each slice below is one worker
-prompt: one path, one check.
+this order **only if the user asks to rebuild**. **Do not hand this file to
+Qwen.** Each slice below is one worker prompt: one path, one check.
 
 ## Orchestration
 
-- Helper: `qwen38-coder` first. If it stalls (~15 min, no write) or truncates:
-  cancel, same slice to `gemma4-coder`, then cut smaller and retry Qwen.
+- Helper: `qwen-coder` (`local-coder`) first. If it stalls (~15 min, no write)
+  or truncates: cancel, same slice to `local-failover` (`gemma-crew`), then
+  cut smaller and retry Qwen.
 - One helper at a time. Parent does not do the helper’s file when the user
   said the helper should.
 - Slice = one function **or** one route **or** one partial **or** one test
@@ -287,11 +292,12 @@ ACCEPTANCE: {acceptance command must succeed}
 
 ## Done when
 
-`.venv/bin/python -m pytest` is green, `./run.sh` serves
-`http://127.0.0.1:8000`, all five tabs load, seed 12 projects appear, dark
-theme keeps pool/export/contest/projects type readable, edit form shows
-entered RM/USD/SGD, export contractor has Total and no Budget in the report
-body.
+This rebuild is **done** on `main` (https://github.com/feilipu/stackrank).
+`./run.sh` serves `http://127.0.0.1:8000`, all five tabs load, seed 12
+projects appear on an empty DB, dark theme keeps pool/export/contest/projects
+type readable, edit form shows entered RM/USD/SGD, export contractor has
+Total and no Budget in the report body.
 
-GitHub: MIT `LICENSE`, no live `data/*.db` in git, no `.venv`. After the
-remote exists: `git remote add origin <url>` and push `main` when asked.
+GitHub: MIT `LICENSE`, no live `data/*.db` in git, no `.venv`. Origin is
+`feilipu/stackrank`. pytest: 105 collected, 104 pass (see `docs/handoff.md`
+for the one known test drift).

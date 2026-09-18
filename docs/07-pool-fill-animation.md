@@ -1,6 +1,6 @@
 # Pool tab: swimming-pool fill graphic
 
-Status: Math shipped. Placement/visual superseded by `docs/08-pool-fill-layout-fix.md`.
+Status: Implemented. Fill math lives in `budget_fill`. Placement/visual superseded by `docs/08-pool-fill-layout-fix.md` (also shipped).
 Date: 2026-08-19
 Author: parent (for qwen38-coder)
 

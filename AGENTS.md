@@ -1,5 +1,8 @@
 # Stackrank — Grok project rules
 
+Shipped product. Spec: `stackrank_prompt.txt`. Living status: `docs/handoff.md`.
+Do not rebuild unless asked. Do not commit live `data/*.db`.
+
 ## Qwen3 helper slices (mandatory)
 
 Qwen3 14B (`qwen-coder`) only gets **tiny slices**. Never hand it a spec, a whole file rewrite, or a multi-file feature in one prompt.

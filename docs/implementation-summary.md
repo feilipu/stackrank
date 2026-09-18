@@ -1,31 +1,38 @@
 # Implementation summary
 
-Canonical next-session notes: **[handoff.md](handoff.md)**.
+Canonical next-session notes: **[handoff.md](handoff.md)**. Product spec:
+**[stackrank_prompt.txt](../stackrank_prompt.txt)**.
 
-## Worker result
+**Status (2026-09-18):** shipped on `main` (https://github.com/feilipu/stackrank).
+Do not rebuild. Version `1.0.0`.
 
-Qwen38 (`01a00d6c-4cb7-7642-a3f4-193367d811db`) wrote the pytest suite after ~6.4 hours. It did not write README or this file, and left two template bugs that broke `/projects` and `/pool`.
+## What landed (beyond the original 12-project seed app)
 
-Parent (Grok 4.6) then:
-
-- Fixed Jinja (`str()`, `%,.0f`, missing context keys)
-- Replaced broken project/pool/contest/optimize templates so pages actually render
-- Wired nav as real links
-- Fixed SortableJS helpers
-- Added README
-- Adjusted the seed-name API assertion (`&` is escaped as `&amp;`)
+- Overall project rename, in/out colour, notes, search/filter/sort, dep sketch.
+- Mutually exclusive sub-projects (symmetric `project_exclusions`).
+- Entered cost amount + currency; rate changes recompute `cost_sgd` and rebalance.
+- Budget shrink rebalances the pool; over-budget when pins block eject.
+- Pool fill (HTML water + duck), sticky 50/50 chrome.
+- Theme: system / light / dark.
+- Contest undo + recap.
+- Export HTML/markdown + contractor list; dark-theme report CSS.
+- Friend launch (`run.sh` / `install.sh`) and `scripts/pack.sh`.
+- Red-team tests for hostile names, costs, and ids.
 
 ## Tests
 
-`pytest` from the repo root: **37 passed**.
+`.venv/bin/python -m pytest` from the repo root: **105 collected, 104 passed**.
 
-Suggested next-work items 1–6 are done. Added 2026-08-18: overall project rename, in/out colour, markdown export (`GET /export.md`). See [handoff.md](handoff.md).
+Known drift: `test_missing_dependency_blocks_add_to_pool` (see handoff).
 
 ## How to run
 
 ```bash
-source .venv/bin/activate
-uvicorn stackrank.main:app --reload --app-dir src
+./run.sh
+# or
+STACKRANK_DB="$PWD/data/stackrank.db" \
+  .venv/bin/python -m uvicorn stackrank.main:app --app-dir src \
+  --host 127.0.0.1 --port 8000
 ```
 
 http://127.0.0.1:8000

@@ -1,5 +1,7 @@
 # Project Stack Ranker
 
+**Status (2026-09-18):** shipped on [`main`](https://github.com/feilipu/stackrank). Python 3.11+ / FastAPI / SQLite. Version `1.0.0`. Product spec: [`stackrank_prompt.txt`](stackrank_prompt.txt). Agent notes: [`docs/handoff.md`](docs/handoff.md).
+
 Single-user local app for ranking sub-projects under a budget. Three complementary modes:
 
 1. **Automatic optimize** — exact 0/1 knapsack over ancestor-closed sets (outcome, Elo, or a blend).
@@ -21,7 +23,7 @@ chmod +x run.sh install.sh   # once
 
 `./install.sh` does the same thing as `./run.sh`: it creates `.venv`, installs the runtime packages, starts the app at [http://127.0.0.1:8000](http://127.0.0.1:8000), and opens your default browser. Stop with **Ctrl+C**.
 
-The first launch with an empty `data/` folder seeds 12 example projects and a S$250,000 budget. After that, everything lives in `data/stackrank.db` next to `run.sh`.
+The first launch with an empty `data/` folder seeds 12 example projects and a S$250,000 budget. After that, everything lives in `data/stackrank.db` next to `run.sh` (gitignored). Point at another file with `STACKRANK_DB=/path/to/file.db`. Host/port: `STACKRANK_HOST` / `STACKRANK_PORT`.
 
 Tabs: **Projects**, **Optimize**, **Pool**, **Contest**, **Export**. The header title is the overall project name (rename in place). Export is a compact coloured report (green = in the success pool, amber = excluded) plus a contractor list of accepted projects; pick SGD / USD / MYR on that tab. In-pool items are green; out-of-pool items are amber.
 
@@ -34,7 +36,11 @@ pip install -r requirements.txt
 python -m uvicorn stackrank.main:app --app-dir src --host 127.0.0.1 --port 8000
 ```
 
-If port 8000 is taken: `STACKRANK_PORT=8001 ./run.sh`.
+If port 8000 is taken: `STACKRANK_PORT=8001 ./run.sh`. To use a specific database:
+
+```bash
+STACKRANK_DB="$PWD/data/stackrank.db" ./run.sh
+```
 
 No Node, Docker, or CDN is required. After the first `pip install`, later launches can reuse the venv (HTMX, Tailwind, and SortableJS are vendored in `static/vendor/`).
 
@@ -60,6 +66,8 @@ pip install -r requirements-dev.txt
 
 Tests use a temporary SQLite file and never touch `data/stackrank.db`. Playwright is only for the optional `scripts/smoke_tabs.py` check, not for running the app.
 
+As of 2026-09-18 the suite collects **105** tests (**104** pass). One known drift: `tests/test_services.py::test_missing_dependency_blocks_add_to_pool` still expects a 409, but adding to the pool now pulls missing dependencies when they fit.
+
 Developers who want auto-reload:
 
 ```bash
@@ -67,10 +75,12 @@ source .venv/bin/activate
 uvicorn stackrank.main:app --reload --app-dir src --host 127.0.0.1 --port 8000
 ```
 
-## Rebuild / GitHub
+## Docs / GitHub
 
-Product spec: [`stackrank_prompt.txt`](stackrank_prompt.txt).  
-Qwen-sized rebuild slices: [`implementation_plan.md`](implementation_plan.md).  
-License: MIT.
+- Product spec (shipped behaviour): [`stackrank_prompt.txt`](stackrank_prompt.txt)
+- Agent handoff: [`docs/handoff.md`](docs/handoff.md)
+- Design notes: [`docs/00-overview.md`](docs/00-overview.md) … [`docs/10-export-dark-theme.md`](docs/10-export-dark-theme.md)
+- Rebuild slices (only if starting over): [`implementation_plan.md`](implementation_plan.md)
+- License: MIT
 
-This tree is meant to be a public git repo. Do not commit `.venv/`, `data/*.db`, or `dist/`. After a GitHub remote exists, push `main` when you ask.
+Remote: https://github.com/feilipu/stackrank. Do not commit `.venv/`, `data/*.db`, or `dist/`.

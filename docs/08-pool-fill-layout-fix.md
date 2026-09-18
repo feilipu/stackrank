@@ -1,6 +1,6 @@
 # Pool tab: fix fill graphic, hash-boxes, sticky 50/50 chrome
 
-Status: Ready to implement (tiny slices)
+Status: Implemented (shipped on `main`, 2026-09-18). Historical spec.
 Date: 2026-08-19
 Author: parent (for qwen38-coder)
 Supersedes placement/visual parts of `docs/07-pool-fill-animation.md`. Fill math (`budget_fill`) stays.

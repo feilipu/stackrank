@@ -1,5 +1,7 @@
 # Testing
 
+**Status (2026-09-18):** `.venv/bin/python -m pytest` collects **105** tests; **104** pass. Known drift: `test_missing_dependency_blocks_add_to_pool` expects a 409, but `add_to_pool` now pulls missing dependencies when they fit.
+
 `pytest` from the repo root. Tests use a temp SQLite file (never the developer `data/stackrank.db`).
 
 Provide `tests/conftest.py` with:
@@ -37,7 +39,7 @@ Provide `tests/conftest.py` with:
 
 1. Adding a project whose cost exceeds remaining ejects the lowest unpinned metric project.
 2. Pinned project is not ejected; if nothing else can go, add is rejected.
-3. Missing dependency blocks add.
+3. Missing dependencies are pulled in when they fit; 409 only if they cannot. (The named test `test_missing_dependency_blocks_add_to_pool` still asserts the old hard-block and currently fails.)
 3b. Adding B when A excludes B ejects A (and A’s unpinned dependents); pinned A is a 409. Budget and exclusive ejections are named in the add result.
 4. Budget shrink ejects lowest unpinned; pinned over-budget stays and reports over_budget; ejecting a dependency also ejects its dependent.
 5. Removing a dependency while a dependent is still pooled is blocked.
@@ -61,6 +63,13 @@ Provide `tests/conftest.py` with:
 7. `GET /export.md` is 200 `text/markdown`, contains a seeded name and `Budget:`.
 8. `GET /export.html` is 200 `text/html` and uses green (`#ecfdf5`) vs amber (`#fff7ed`).
 9. `GET /pool` includes `#pool-fill` with `data-fill` (`tests/test_pool_fill.py`).
+10. Contest undo restores Elo (`tests/test_projects_chrome.py`).
+11. Contractor export lists only accepted (`tests/test_export_markdown_leads_with_pool.py`).
+12. Theme POST stays on the current tab; selected nav uses indigo chip classes.
+
+## Red-team (`tests/test_bad_*.py`)
+
+Hostile create/update must not 500: empty name, huge name, XSS-ish name, SQL-ish name, negative cost, bad pool id, bad contest id, SQL-ish budget field. HTML must escape user text.
 
 ## Manual / README smoke
 
@@ -73,6 +82,6 @@ pip install -r requirements.txt
 python -m uvicorn stackrank.main:app --app-dir src --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`. Seed data visible. All four tabs load.
+Open `http://127.0.0.1:8000`. Seed data visible. All five tabs load (Projects, Optimize, Pool, Contest, Export).
 
 Runtime install is `requirements.txt`. Tests need `requirements-dev.txt` (pytest, httpx, playwright). No Playwright required to run the app. Optional later.

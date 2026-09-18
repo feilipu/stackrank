@@ -1,6 +1,6 @@
 # Projects list, notes, efficiency, deps, contest undo, chrome
 
-Status: Ready to implement (tiny slices, 20 min watch)
+Status: Implemented (shipped on `main`, 2026-09-18). Historical spec.
 Date: 2026-08-19
 Author: parent (for qwen38-coder)
 

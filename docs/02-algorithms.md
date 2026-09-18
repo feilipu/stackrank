@@ -1,5 +1,7 @@
 # Algorithms
 
+**Status (2026-09-18):** these algorithms are in `src/stackrank/{currency,elo,optimizer,services}.py`. There is no n>24 ILP fallback; the same recursion is used.
+
 ## Currency
 
 Base unit is SGD. Rates stored as “foreign per 1 SGD”.
@@ -119,7 +121,7 @@ Inputs: current pool (ordered), incoming project P, budget, eject metric, pins.
 Algorithm when adding P (from Available → Pool):
 
 1. If P is already in the pool, ignore.
-2. If any direct-or-transitive dependency of P is not in the pool, **block** the add and return an HTMX error fragment listing missing dependency names. Do not auto-add dependencies (user must pull them in).
+2. If any direct-or-transitive dependency of P is not in the pool, **pull those deps in first** (recursive `add_to_pool`). If a dep cannot fit even after ejecting unpinned items, **block** with 409. (An older service test still expects a hard block without pull-in.)
 3. Tentatively append P at the lowest priority (end of list).
 4. While `sum(costs) > budget`:
    - Candidates = unpinned items **except P** (never eject the item just added if something else can go). If still over, P itself may be rejected with “does not fit even after ejecting unpinned projects”.

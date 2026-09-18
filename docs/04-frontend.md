@@ -1,5 +1,7 @@
 # Frontend
 
+**Status (2026-09-18):** this is the live UI. Tailwind, HTMX, and SortableJS are vendored (no CDN at runtime).
+
 Server-rendered. No build step. No Node required.
 
 ## Assets
@@ -50,10 +52,11 @@ S$12,000  ·  US$8,880  ·  RM41,400
 ## Projects tab
 
 - Left or top: budget card (amount + currency select + rates editor).
-- Table/cards of projects: name, description, cost (3 fx), outcome, Elo, matches W-L, dependency chips.
-- “Add project” form: name, description, cost + currency, outcome, and a two-column pair of `<select multiple>` lists for **Depends on** and **Excludes** (⌘/Ctrl-click). Lists scroll inside the widget so a long catalogue does not stretch the page.
+- Search / pool filter / sort (`q`, `pool`, `sort`, `dir`) above the list.
+- Table/cards of projects: name, description, notes, cost (3 fx), outcome, Elo, matches W-L, efficiency (`outcome/S$`, `Elo/S$`), dependency sketch, dependency chips.
+- “Add project” form: name, description, notes, cost + currency (defaults to `last_cost_currency`), outcome, and a two-column pair of `<select multiple>` lists for **Depends on** and **Excludes** (⌘/Ctrl-click). Lists scroll inside the widget so a long catalogue does not stretch the page.
 - Cards list “Excludes: …” next to “Depends on: …”.
-- Edit in place (HTMX swap a form into the row).
+- Edit in place (HTMX swap a form into the row). The edit form shows the **entered** amount and currency, not a reverse conversion from SGD.
 - Delete with `hx-confirm`.
 
 ## Optimize tab
@@ -79,8 +82,9 @@ Two equal columns on desktop, stacked on mobile (`md:grid-cols-2`).
 ## Contest tab
 
 - Two large cards side by side (`md:grid-cols-2`), each with name, description, cost, outcome, current Elo, W-L.
-- Buttons: “A is better”, “Skip”, “B is better”.
+- Buttons: “A is better”, “Skip”, “B is better”, **Undo last match**.
 - Progress bar + “N / M pairs decided” + Start / Stop.
+- Recap of the last action.
 - “Reset Elo to 1500” with confirm.
 - Leaderboard table under (or right column on xl): rank, name, Elo (1 decimal), matches, W-L.
 
@@ -89,6 +93,10 @@ Two equal columns on desktop, stacked on mobile (`md:grid-cols-2`).
 - Buttons have visible labels (not icon-only).
 - Color is not the only status signal (text for errors).
 - Contest buttons are real `<button>` elements, keyboard reachable.
+
+## Export tab
+
+Same sticky chrome. Full report then contractor list. Toolbar `?ccy=SGD|USD|MYR`. Nav **Export** opens `/export.html`; that page links to markdown and contractor views.
 
 ## Theme, favicon, empty art
 
